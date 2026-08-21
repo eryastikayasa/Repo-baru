@@ -103,7 +103,7 @@ static void audio_playback_task(void *arg)
     bool underrun_reported = false;
     uint32_t playback_generation = 0;
     int64_t last_stats_us = 0;
-    ESP_LOGI(TAG, "Audio playback task: 24kHz PCM16 mono, ring=%u, prebuffer=%u, core=%d priority=3",
+    ESP_LOGI(TAG, "Audio playback task: 24kHz PCM16 mono, ring=%u, prebuffer=%u, core=%d priority=6",
              (unsigned)AUDIO_RING_BUFFER_SIZE,
              (unsigned)AUDIO_PLAYBACK_PREBUFFER_SIZE,
              xPortGetCoreID());
