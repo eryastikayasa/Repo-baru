@@ -228,11 +228,11 @@ bool start_audio_playback(void)
                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
         return false;
     }
-    /* v7.1.3 diagnostic: lower playback priority and keep it on CPU0 as in
+    /* v7.1.3 diagnostic: playback priority and keep it on CPU0 as in
      * the failing v7.1.2 trace. This isolates priority/idle starvation first
      * without changing I2S, DMA, ring size, or WebSocket behavior. */
     BaseType_t result = xTaskCreatePinnedToCore(audio_playback_task, "audio_playback",
-                                                4096, NULL, 3,
+                                                4096, NULL, 6,
                                                 &audio_playback_task_handle, 0);
     if (result != pdPASS) {
         ESP_LOGE(TAG, "Gagal membuat audio_task/playback task: free_internal=%u largest=%u",
@@ -243,7 +243,7 @@ bool start_audio_playback(void)
         audio_playback_task_handle = NULL;
         return false;
     }
-    ESP_LOGI(TAG, "Audio ring buffer siap: %u byte, prebuffer=%u, target=%u B/s, playback core=0 priority=3",
+    ESP_LOGI(TAG, "Audio ring buffer siap: %u byte, prebuffer=%u, target=%u B/s, playback core=0 priority=6",
              (unsigned)AUDIO_RING_BUFFER_SIZE,
              (unsigned)AUDIO_PLAYBACK_PREBUFFER_SIZE,
              (unsigned)AUDIO_OUTPUT_BYTES_PER_SEC);
