@@ -387,3 +387,194 @@ bool websocket_rx_init(void)
 }
 
 void websocket_rx_request_reset(void) { ws_rx_reset_pending = true; }
+
+void websocket_rx_flush_queue(void)
+{
+    if (!websocket_rx_queue) return;
+    ws_rx_command_t stale = {};
+    size_t flushed = 0;
+    while (xQueueReceive(websocket_rx_queue, &stale, 0) == pdTRUE) {
+        release_slot(stale.slot_id);
+        ++flushed;
+    }
+    if (flushed) ESP_LOGW(TAG, "RX queue dibersihkan: %u message", (unsigned)flushed);
+}
+
+void websocket_rx_note_invalid_json(size_t len)
+{
+    ++rx_invalid_json;
+    ESP_LOGW(TAG, "RX INVALID JSON #%lu: len=%u", (unsigned long)rx_invalid_json, (unsigned)len);
+}
+
+bool websocket_rx_enqueue_data(esp_websocket_event_data_t *data, uint32_t generation)
+{
+    if (!data || !data->data_ptr || data->data_len <= 0 || data->payload_len <= 0 ||
+        data->payload_offset < 0 || generation != websocket_connection_generation || !is_connected) {
+        ++rx_fragments_dropped; return false;
+    }
+    ++rx_fragments_received;
+    const size_t payload_len = (size_t)data->payload_len;
+    const size_t offset = (size_t)data->payload_offset;
+    const size_t len = (size_t)data->data_len;
+    if (payload_len > rx_largest_payload) rx_largest_payload = (uint32_t)payload_len;
+    if (offset > payload_len || len > payload_len - offset) {
+        ++rx_fragments_dropped; ++rx_sequence_errors; return false;
+    }
+
+    if (rx_drop_payload_len != 0) {
+        if (offset == 0 && rx_drop_received != 0) {
+            ++rx_sequence_errors; rx_drop_payload_len = 0; rx_drop_received = 0;
+        } else {
+            ++rx_fragments_dropped;
+            if (offset == rx_drop_received) rx_drop_received += len;
+            else { ++rx_sequence_errors; rx_drop_received = offset + len; }
+            if (rx_drop_received >= rx_drop_payload_len) { rx_drop_payload_len = 0; rx_drop_received = 0; }
+            return true;
+        }
+    }
+
+    if (offset == 0) {
+        if (ws_rx_active) { ++rx_fragments_dropped; ++rx_sequence_errors; reset_rx_buffer(); }
+
+        /* Large Gemini audio is not assembled as one giant JSON string.
+         * Only a compact envelope is retained in the persistent slot while
+         * base64 is decoded fragment-by-fragment into the audio ring buffer. */
+        ws_rx_streaming = payload_len > WS_RX_STREAM_THRESHOLD;
+
+        if (payload_len > WS_RX_MAX_PAYLOAD_SIZE) {
+            ++rx_fragments_dropped; ++rx_oversize_drops;
+            stream_discard_message(payload_len, len);
+            ESP_LOGW(TAG, "RX oversize: payload=%u limit=%u", (unsigned)payload_len,
+                     (unsigned)WS_RX_MAX_PAYLOAD_SIZE);
+            return false;
+        }
+
+        int slot = reserve_slot();
+        if (slot < 0) {
+            ++rx_fragments_dropped; ++rx_buffer_drops;
+            stream_discard_message(payload_len, len);
+            ESP_LOGW(TAG, "RX BUFFER DROP: no free slot payload=%u", (unsigned)payload_len);
+            return false;
+        }
+
+        size_t required = ws_rx_streaming ? (WS_RX_STREAM_COMPACT_SIZE - 1) : payload_len;
+        if (!ensure_slot_buffer(slot, required)) {
+            release_slot((uint8_t)slot);
+            ++rx_fragments_dropped; ++rx_buffer_drops;
+            stream_discard_message(payload_len, len);
+            ESP_LOGW(TAG, "RX slot allocation gagal: payload=%u stream=%s", (unsigned)payload_len,
+                     ws_rx_streaming ? "yes" : "no");
+            return false;
+        }
+
+        rx_capture_slot = slot;
+        ws_rx_received = 0;
+        ws_rx_expected = payload_len;
+        ws_rx_received_full = 0;
+        ws_rx_expected_full = payload_len;
+        ws_rx_active = true;
+
+        if (ws_rx_streaming) {
+            stream_reset_state();
+            if (!stream_consume_fragment((const uint8_t *)data->data_ptr, len)) {
+                ++rx_fragments_dropped;
+                ++rx_buffer_drops;
+                stream_discard_message(payload_len, len);
+                reset_rx_buffer();
+                return false;
+            }
+            ws_rx_received_full = offset + len;
+        }
+    } else if (!ws_rx_active || rx_capture_slot < 0 || rx_capture_slot >= WS_RX_SLOT_COUNT ||
+               ws_rx_expected_full != payload_len || offset != ws_rx_received_full) {
+        ++rx_fragments_dropped; ++rx_sequence_errors; reset_rx_buffer(); return false;
+    }
+
+    if (!ws_rx_streaming) {
+        if (!ws_rx_active || rx_capture_slot < 0 || rx_capture_slot >= WS_RX_SLOT_COUNT ||
+            !rx_slots[rx_capture_slot] || ws_rx_expected != payload_len || offset != ws_rx_received) {
+            ++rx_fragments_dropped; ++rx_sequence_errors; reset_rx_buffer(); return false;
+        }
+        memcpy(rx_slots[rx_capture_slot] + offset, data->data_ptr, len);
+        ws_rx_received = offset + len;
+        ws_rx_received_full = ws_rx_received;
+    } else if (offset != 0) {
+        if (!stream_consume_fragment((const uint8_t *)data->data_ptr, len)) {
+            ++rx_fragments_dropped;
+            ++rx_buffer_drops;
+            stream_discard_message(payload_len, offset + len);
+            reset_rx_buffer();
+            return false;
+        }
+        ws_rx_received_full = offset + len;
+    }
+
+    if (ws_rx_received_full == ws_rx_expected_full) {
+        if (ws_rx_streaming) {
+            const bool ok = stream_finish();
+            if (ok) {
+                stream_queue_compact_message(generation);
+            } else {
+                ++rx_fragments_dropped;
+                ++rx_buffer_drops;
+                ESP_LOGW(TAG, "RX streamed audio message discarded: compact=%u audio_seen=%s failed=%s",
+                         (unsigned)rx_stream_compact_len,
+                         rx_stream_audio_seen ? "yes" : "no",
+                         rx_stream_failed ? "yes" : "no");
+                release_slot((uint8_t)rx_capture_slot);
+                rx_capture_slot = -1;
+            }
+            ws_rx_streaming = false;
+            ws_rx_active = false;
+            ws_rx_received_full = 0;
+            ws_rx_expected_full = 0;
+            return ok;
+        }
+
+        rx_slots[rx_capture_slot][ws_rx_expected] = '\0';
+        ws_rx_active = false;
+        ws_rx_command_t cmd = {};
+        cmd.generation = generation;
+        cmd.buffer = rx_slots[rx_capture_slot];
+        cmd.len = (uint32_t)ws_rx_expected;
+        cmd.slot_id = (uint8_t)rx_capture_slot;
+        if (xQueueSend(websocket_rx_queue, &cmd, 0) != pdTRUE) {
+            ++rx_fragments_dropped; ++rx_queue_drops; release_slot(cmd.slot_id);
+            ESP_LOGW(TAG, "RX QUEUE DROP: payload=%u", (unsigned)cmd.len);
+            ws_rx_received = 0; ws_rx_expected = 0; rx_capture_slot = -1;
+            return false;
+        }
+        UBaseType_t waiting = uxQueueMessagesWaiting(websocket_rx_queue);
+        if (waiting > rx_queue_high_water) rx_queue_high_water = waiting;
+        ws_rx_received = 0; ws_rx_expected = 0; rx_capture_slot = -1;
+    }
+    return true;
+}
+
+void reset_rx_buffer(void)
+{
+    if (rx_capture_slot >= 0 && rx_capture_slot < WS_RX_SLOT_COUNT)
+        release_slot((uint8_t)rx_capture_slot);
+    ws_rx_active = false;
+    ws_rx_streaming = false;
+    ws_rx_received = 0;
+    ws_rx_expected = 0;
+    ws_rx_received_full = 0;
+    ws_rx_expected_full = 0;
+    rx_capture_slot = -1;
+    rx_drop_payload_len = 0;
+    rx_drop_received = 0;
+    stream_reset_state();
+}
+
+bool ensure_rx_buffer(size_t required_size)
+{
+    return required_size > 0 && required_size <= WS_RX_MAX_PAYLOAD_SIZE &&
+           required_size <= WS_RX_SLOT_SIZE - WS_RX_TERMINATOR_SIZE;
+}
+
+void process_websocket_payload(esp_websocket_event_data_t *data)
+{
+    if (!data) return;
+    websocket_rx_enqueue_data(data, websocket_connection_generation);
+}
