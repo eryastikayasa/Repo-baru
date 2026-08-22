@@ -35,7 +35,7 @@ static volatile uint32_t audio_turn_generation = 0;
 static size_t send_realtime_pcm(const uint8_t *data, size_t len)
 {
     if (audio_stream == NULL || data == NULL || len == 0) return 0;
-    size_t offset = 0;
+    size_t offset = 0; 
     while (offset < len) {
         size_t chunk = len - offset;
         if (chunk > AUDIO_SEND_CHUNK_SIZE) chunk = AUDIO_SEND_CHUNK_SIZE;
