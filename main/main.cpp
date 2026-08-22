@@ -219,20 +219,24 @@ static void audio_task(void *arg)
             continue;
         }
 
-        size_t bytes_read = audio_read_mic(audio_buffer + buffer_pos, sizeof(audio_buffer) - buffer_pos);
+        size_t bytes_read = audio_read_mic(audio_buffer + buffer_pos,
+                                           sizeof(audio_buffer) - buffer_pos);
         if (bytes_read > 0) buffer_pos += bytes_read;
 
         if (buffer_pos >= 3200) {
-            if (mic_frame_has_activity(audio_buffer, 3200)) {
+            // Hanya kirim MIC kalau Gemini tidak sedang bicara
+            if (!audio_turn_active && mic_frame_has_activity(audio_buffer, 3200)) {
                 websocket_send_audio_data(audio_buffer, 3200);
-            } else {
+            } else if (!audio_turn_active) {
                 silent_frames++;
                 int64_t now_us = esp_timer_get_time();
                 if (last_silent_log_us == 0 || now_us - last_silent_log_us >= 1000000) {
                     last_silent_log_us = now_us;
-                    ESP_LOGI(TAG, "V7.0.36 MIC TX gate: silent frames dropped=%lu", (unsigned long)silent_frames);
+                    ESP_LOGI(TAG, "V7.0.36 MIC TX gate: silent frames dropped=%lu",
+                             (unsigned long)silent_frames);
                 }
             }
+            // Kalau audio_turn_active true, frame mic dibuang tanpa log spam
 
             size_t remainder = buffer_pos - 3200;
             if (remainder > 0) memmove(audio_buffer, audio_buffer + 3200, remainder);
