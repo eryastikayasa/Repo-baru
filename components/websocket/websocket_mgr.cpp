@@ -254,7 +254,7 @@ void websocket_app_start(void)
     cfg.keep_alive_interval = 10;
     cfg.keep_alive_count = 3;
     cfg.buffer_size = 8192;
-    ESP_LOGI(TAG, "V7.0.32 DIAGNOSTIC: PING ON, audio write timeout=3000ms, retry=1, retry_delay=30ms"
+    ESP_LOGI(TAG, "V7.0.32 DIAGNOSTIC: PING ON, audio write timeout=3000ms, retry=1, retry_delay=30ms");
 
     client = esp_websocket_client_init(&cfg);
     if (!client) return;
