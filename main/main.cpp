@@ -2,6 +2,7 @@
 #include "wifi_manager.h"
 #include "websocket_mgr.h"
 #include "audio_hal.h"
+#include "websocket_internal.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
