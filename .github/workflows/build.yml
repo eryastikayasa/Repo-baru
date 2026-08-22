@@ -46,6 +46,9 @@ jobs:
       - name: Check PlatformIO
         run: pio --version
 
+      - name: List available ESP32-S3 boards
+        run: pio boards | grep esp32-s3-devkitc
+
       # ============================================================
       # CHECK ESPRESSIF32 / ESP-IDF
       # ============================================================
