@@ -249,12 +249,12 @@ void websocket_app_start(void)
      * V7.0.28 DIAGNOSTIC retained:
      * Disable library keep-alive PING while isolating the WebSocket write path.
      */
-    cfg.keep_alive_enable = false;
+    cfg.keep_alive_enable = true;
     cfg.keep_alive_idle = 30;
     cfg.keep_alive_interval = 10;
     cfg.keep_alive_count = 3;
     cfg.buffer_size = 8192;
-    ESP_LOGI(TAG, "V7.0.32 DIAGNOSTIC: PING OFF, audio write timeout=1000ms, retry=1, retry_delay=30ms");
+    ESP_LOGI(TAG, "V7.0.32 DIAGNOSTIC: PING OFF, audio write timeout=3000ms, retry=1, retry_delay=30ms");
 
     client = esp_websocket_client_init(&cfg);
     if (!client) return;
