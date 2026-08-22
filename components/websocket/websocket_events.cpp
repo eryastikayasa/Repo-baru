@@ -1,7 +1,5 @@
 #include "websocket_internal.h"
-
 #include "display.h"
-
 #include "esp_log.h"
 #include "esp_websocket_client.h"
 
@@ -21,7 +19,7 @@ static void invalidate_connection_generation(void)
 }
 
 void websocket_event_handler(void *handler_args, esp_event_base_t base,
-                            int32_t event_id, void *event_data)
+                             int32_t event_id, void *event_data)
 {
     (void)base;
     esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
@@ -40,7 +38,6 @@ void websocket_event_handler(void *handler_args, esp_event_base_t base,
             is_connected = true;
             setup_complete = false;
             websocket_tx_error = false;
-            /* Avoid deprecated ++ on volatile-qualified objects under -Werror. */
             websocket_connection_generation = websocket_connection_generation + 1;
             ESP_LOGI(TAG, "Connection generation=%lu",
                      (unsigned long)websocket_connection_generation);
@@ -122,6 +119,13 @@ void websocket_event_handler(void *handler_args, esp_event_base_t base,
 
         case WEBSOCKET_EVENT_FINISH:
             ESP_LOGI(TAG, "WebSocket FINISH");
+            // Hancurkan client untuk memungkinkan koneksi ulang
+            if (client != NULL) {
+                esp_websocket_client_destroy(client);
+                client = NULL;
+            }
+            // Reset flag internal websocket_mgr agar bisa start lagi
+            websocket_reset_started(); // Pastikan fungsi ini dideklarasikan
             break;
 
         default:
