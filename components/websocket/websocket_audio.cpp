@@ -27,8 +27,8 @@ static SemaphoreHandle_t audio_send_mutex = NULL;
 #define AUDIO_PLAYBACK_READ_SIZE       2048
 #define AUDIO_PLAYBACK_READ_WAIT_MS    5
 #define AUDIO_PLAYBACK_TRIGGER_SIZE    1024
-#define AUDIO_SEND_CHUNK_SIZE          4096
-#define AUDIO_SEND_WAIT_MS             10
+#define AUDIO_SEND_CHUNK_SIZE          512
+#define AUDIO_SEND_WAIT_MS             50
 
 static volatile uint32_t audio_turn_generation = 0;
 
@@ -41,6 +41,14 @@ static size_t send_realtime_pcm(const uint8_t *data, size_t len)
         if (chunk > AUDIO_SEND_CHUNK_SIZE) chunk = AUDIO_SEND_CHUNK_SIZE;
         chunk &= ~((size_t)1);
         if (chunk == 0) break;
+
+        // Flow control: tunggu sampai ruang minimal satu chunk tersedia.
+        size_t spaces = xStreamBufferSpacesAvailable(audio_stream);
+        if (spaces < chunk) {
+            vTaskDelay(pdMS_TO_TICKS(1));
+            continue;
+        }
+
         size_t written = xStreamBufferSend(audio_stream, data + offset, chunk,
                                            pdMS_TO_TICKS(AUDIO_SEND_WAIT_MS));
         if (written > 0) {
@@ -48,18 +56,14 @@ static size_t send_realtime_pcm(const uint8_t *data, size_t len)
             written &= ~((size_t)1);
             offset += written;
             audio_bytes_queued += written;
-            if (written < chunk) break;
+            if (written < chunk) continue;
             continue;
         }
-        ESP_LOGW(TAG, "Audio ring penuh: offset=%u/%u pending=%u",
+        ESP_LOGW(TAG, "Audio ring penuh: offset=%u/%u pending=%u spaces=%u",
                  (unsigned)offset, (unsigned)len,
-                 (unsigned)xStreamBufferBytesAvailable(audio_stream));
-        break;
-    }
-    if (offset < len) {
-        size_t lost = len - offset;
-        audio_bytes_dropped += lost;
-        ESP_LOGW(TAG, "Audio PCM drop terukur: %u byte", (unsigned)lost);
+                 (unsigned)xStreamBufferBytesAvailable(audio_stream),
+                 (unsigned)xStreamBufferSpacesAvailable(audio_stream));
+        continue;
     }
     return offset;
 }
