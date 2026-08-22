@@ -160,13 +160,43 @@ static bool stream_append_char(char c)
 
 static bool stream_flush_pcm(void)
 {
-    if (rx_stream_pcm_len == 0) return true;
-    const size_t n = rx_stream_pcm_len;
+    if (rx_stream_pcm_len == 0)
+        return true;
+
+    size_t n = rx_stream_pcm_len;
+    uint8_t sisa = 0;
+    bool has_sisa = false;
+
+    // PCM16 = 2 byte/sample → kirim hanya jumlah genap
+    if (n & 1) {
+        sisa = rx_stream_pcm[n - 1];
+        n--;
+        has_sisa = true;
+    }
+
+    if (n == 0) {
+        rx_stream_pcm[0] = sisa;
+        rx_stream_pcm_len = 1;
+        return true;
+    }
+
     audio_bytes_received += n;
     audio_chunks_received++;
+
     bool ok = queue_audio_pcm(rx_stream_pcm, n);
-    if (!ok) ESP_LOGW(TAG, "AUDIO STREAM: queue PCM gagal len=%u", (unsigned)n);
-    rx_stream_pcm_len = 0;
+
+    if (has_sisa) {
+        rx_stream_pcm[0] = sisa;
+        rx_stream_pcm_len = 1;
+    } else {
+        rx_stream_pcm_len = 0;
+    }
+
+    if (!ok)
+        ESP_LOGW(TAG,
+                 "AUDIO STREAM: queue PCM gagal len=%u",
+                 (unsigned)n);
+
     return ok;
 }
 
