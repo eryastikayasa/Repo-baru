@@ -269,3 +269,16 @@ bool websocket_is_connected(void)
 {
     return is_connected && setup_complete && !websocket_tx_error;
 }
+
+
+void websocket_disconnect(void)
+{
+    if (client != NULL) {
+        esp_websocket_client_close(client, pdMS_TO_TICKS(1000));
+    }
+}
+
+void websocket_reset_started(void)
+{
+    ws_started = false;
+}
