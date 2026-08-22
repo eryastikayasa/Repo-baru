@@ -26,11 +26,6 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 
-void app_main(void) {
-    ESP_LOGI("MAIN", "Total PSRAM: %d bytes", esp_psram_get_size());
-    ESP_LOGI("MAIN", "Free Heap: %d bytes", esp_get_free_heap_size());
-    ESP_LOGI("MAIN", "Free PSRAM: %d bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-}
 
 
 static const char *TAG = "MAIN";
@@ -260,6 +255,14 @@ static void audio_task(void *arg)
 // ============================================================
 
 extern "C" void app_main(void)
+
+
+ {
+    ESP_LOGI("MAIN", "Total PSRAM: %d bytes", esp_psram_get_size());
+    ESP_LOGI("MAIN", "Free Heap: %d bytes", esp_get_free_heap_size());
+    ESP_LOGI("MAIN", "Free PSRAM: %d bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+ }
+
 {
     ESP_LOGI(TAG, "ESP32-S3 Asisten Kamar Dimulai...");
 
