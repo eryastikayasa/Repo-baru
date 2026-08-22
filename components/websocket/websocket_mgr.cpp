@@ -162,7 +162,7 @@ static void websocket_tx_task(void *arg)
 
                     ESP_LOGW(
                         TAG,
-                        "TX audio write timeout/fail: attempt=%d sent=%d expected=%d pcm_chunk=%u offset=%u/%u timeout=1000ms",
+                        "TX audio write timeout/fail: attempt=%d sent=%d expected=%d pcm_chunk=%u offset=%u/%u timeout=3000ms",
                         attempt + 1,
                         sent,
                         json_len,
@@ -247,7 +247,7 @@ void websocket_app_start(void)
 
     /*
      * V7.0.28 DIAGNOSTIC retained:
-     * Disable library keep-alive PING while isolating the WebSocket write path.
+     * Enable library keep-alive PING while isolating the WebSocket write path.
      */
     cfg.keep_alive_enable = true;
     cfg.keep_alive_idle = 30;
@@ -269,7 +269,6 @@ bool websocket_is_connected(void)
 {
     return is_connected && setup_complete && !websocket_tx_error;
 }
-
 
 void websocket_disconnect(void)
 {
