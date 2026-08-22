@@ -6,6 +6,10 @@
 
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_wifi.h"
+#include "esp_psram.h"
+#include "esp_heap_caps.h"
+#include "driver/gpio.h"      // <-- tambahan untuk tombol boot
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -22,12 +26,9 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include "esp_psram.h"
-#include "esp_heap_caps.h"
-
-
 
 static const char *TAG = "MAIN";
+#define BOOT_BUTTON_GPIO GPIO_NUM_0
 
 // ============================================================
 // NETWORK DEBUG
@@ -55,7 +56,8 @@ static bool debug_dns_resolution(void)
         if (p->ai_family != AF_INET) continue;
         struct sockaddr_in *addr = (struct sockaddr_in *)p->ai_addr;
         char ip[INET_ADDRSTRLEN] = {};
-        if (inet_ntop(AF_INET, &addr->sin_addr, ip, sizeof(ip)) != nullptr) ESP_LOGI(TAG, "DNS IPv4: %s", ip);
+        if (inet_ntop(AF_INET, &addr->sin_addr, ip, sizeof(ip)) != nullptr)
+            ESP_LOGI(TAG, "DNS IPv4: %s", ip);
         found_ipv4 = true;
         break;
     }
@@ -90,7 +92,8 @@ static bool debug_tcp_connection(void)
         if (p->ai_family != AF_INET) continue;
         struct sockaddr_in *addr = (struct sockaddr_in *)p->ai_addr;
         char ip[INET_ADDRSTRLEN] = {};
-        if (inet_ntop(AF_INET, &addr->sin_addr, ip, sizeof(ip)) != nullptr) ESP_LOGI(TAG, "TCP target: %s:443", ip);
+        if (inet_ntop(AF_INET, &addr->sin_addr, ip, sizeof(ip)) != nullptr)
+            ESP_LOGI(TAG, "TCP target: %s:443", ip);
         sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
         if (sock < 0) {
             ESP_LOGE(TAG, "TCP socket() FAILED errno=%d", errno);
@@ -186,14 +189,14 @@ static void sync_sntp_time(void)
 }
 
 // ============================================================
-// AUDIO TASK
+// MIC ACTIVITY DETECTION
 // ============================================================
 
 static bool mic_frame_has_activity(const uint8_t *data, size_t len)
 {
     if (!data || len < 2) return false;
 
-    constexpr int32_t SILENCE_THRESHOLD = 200;
+    constexpr int32_t SILENCE_THRESHOLD = 200;   // sensitif
     constexpr size_t MIN_ACTIVE_SAMPLES = 8;
     size_t active_samples = 0;
 
@@ -208,6 +211,14 @@ static bool mic_frame_has_activity(const uint8_t *data, size_t len)
     return false;
 }
 
+// ============================================================
+// AUDIO TASK: IDLE + ACTIVE MODE
+// ============================================================
+
+static bool assistant_active = false;
+static int64_t last_user_activity_us = 0;
+static int64_t connect_start_us = 0;
+
 static void audio_task(void *arg)
 {
     (void)arg;
@@ -217,35 +228,90 @@ static void audio_task(void *arg)
     int64_t last_silent_log_us = 0;
 
     while (1) {
+        // Selalu baca mic supaya buffer tetap terisi
+        size_t bytes_read = audio_read_mic(audio_buffer + buffer_pos,
+                                           sizeof(audio_buffer) - buffer_pos);
+        if (bytes_read > 0) buffer_pos += bytes_read;
+
+        if (!assistant_active) {
+            // ========== MODE IDLE: tunggu tombol boot ==========
+            if (gpio_get_level(BOOT_BUTTON_GPIO) == 0) {
+                vTaskDelay(pdMS_TO_TICKS(50)); // debounce
+                if (gpio_get_level(BOOT_BUTTON_GPIO) == 0) {
+                    // Tunggu sampai tombol dilepas
+                    while (gpio_get_level(BOOT_BUTTON_GPIO) == 0) {
+                        vTaskDelay(pdMS_TO_TICKS(10));
+                    }
+                    ESP_LOGI(TAG, "Tombol ditekan! Memulai sesi...");
+                    assistant_active = true;
+                    connect_start_us = esp_timer_get_time();
+                    websocket_app_start();
+                }
+            }
+
+            // Bersihkan buffer mic selama idle
+            size_t remainder = buffer_pos >= 3200 ? buffer_pos - 3200 : buffer_pos;
+            if (remainder > 0 && buffer_pos >= 3200)
+                memmove(audio_buffer, audio_buffer + 3200, remainder);
+            buffer_pos = remainder;
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+
+        // ========== MODE AKTIF ==========
+        // Jika belum terhubung, tunggu maksimal 15 detik
         if (!websocket_is_connected()) {
+            if (esp_timer_get_time() - connect_start_us > 15 * 1000000LL) {
+                ESP_LOGW(TAG, "Koneksi gagal. Kembali ke mode idle.");
+                assistant_active = false;
+                buffer_pos = 0;
+                continue;
+            }
+            // Bersihkan buffer dan tunggu
             buffer_pos = 0;
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
 
-        size_t bytes_read = audio_read_mic(audio_buffer + buffer_pos,
-                                           sizeof(audio_buffer) - buffer_pos);
-        if (bytes_read > 0) buffer_pos += bytes_read;
-
         if (buffer_pos >= 3200) {
-            // Hanya kirim MIC kalau Gemini tidak sedang bicara
-            if (!audio_turn_active && mic_frame_has_activity(audio_buffer, 3200)) {
-                websocket_send_audio_data(audio_buffer, 3200);
-            } else if (!audio_turn_active) {
-                silent_frames++;
-                int64_t now_us = esp_timer_get_time();
-                if (last_silent_log_us == 0 || now_us - last_silent_log_us >= 1000000) {
-                    last_silent_log_us = now_us;
-                    ESP_LOGI(TAG, "V7.0.36 MIC TX gate: silent frames dropped=%lu",
-                             (unsigned long)silent_frames);
+            bool has_activity = mic_frame_has_activity(audio_buffer, 3200);
+
+            if (has_activity) {
+                last_user_activity_us = esp_timer_get_time();
+            }
+
+            // Idle 60 detik -> tutup koneksi
+            int64_t now_us = esp_timer_get_time();
+            if (now_us - last_user_activity_us > 60 * 1000000LL) {
+                ESP_LOGI(TAG, "Idle 60 detik, menutup sesi.");
+                assistant_active = false;
+                websocket_disconnect();
+                buffer_pos = 0;
+                continue;
+            }
+
+            // Kirim audio hanya jika Gemini tidak bicara
+            if (!audio_turn_active) {
+                if (has_activity) {
+                    websocket_send_audio_data(audio_buffer, 3200);
+                } else {
+                    silent_frames++;
+                    int64_t now_log = esp_timer_get_time();
+                    if (last_silent_log_us == 0 || now_log - last_silent_log_us >= 1000000) {
+                        last_silent_log_us = now_log;
+                        ESP_LOGI(TAG, "V7.0.36 MIC TX gate: silent frames dropped=%lu",
+                                 (unsigned long)silent_frames);
+                    }
                 }
             }
-            // Kalau audio_turn_active true, frame mic dibuang tanpa log spam
 
+            // Reset buffer dengan remainder
             size_t remainder = buffer_pos - 3200;
             if (remainder > 0) memmove(audio_buffer, audio_buffer + 3200, remainder);
             buffer_pos = remainder;
         }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -253,11 +319,11 @@ static void audio_task(void *arg)
 // APP MAIN
 // ============================================================
 
-extern "C" void app_main(void) {
+extern "C" void app_main(void)
+{
     ESP_LOGI("MAIN", "Total PSRAM: %d bytes", esp_psram_get_size());
     ESP_LOGI("MAIN", "Free Heap: %d bytes", esp_get_free_heap_size());
     ESP_LOGI("MAIN", "Free PSRAM: %d bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-
 
     ESP_LOGI(TAG, "ESP32-S3 Asisten Kamar Dimulai...");
 
@@ -274,6 +340,11 @@ extern "C" void app_main(void) {
     audio_hal_init();
     audio_i2s_test_tone();
 
+    // Inisialisasi tombol boot sebagai input
+    gpio_set_direction(BOOT_BUTTON_GPIO, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(BOOT_BUTTON_GPIO, GPIO_PULLUP_ONLY);
+    ESP_LOGI(TAG, "Tombol boot siap di GPIO0");
+
     display_status("Menghubungkan WiFi...");
     wifi_init_sta();
 
@@ -283,6 +354,10 @@ extern "C" void app_main(void) {
         while (1) vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
+    // Matikan WiFi power save supaya koneksi stabil
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    ESP_LOGI(TAG, "WiFi power save dimatikan");
+
     ESP_LOGI(TAG, "WIFI READY - lanjut ke NTP");
     sync_sntp_time();
     ESP_LOGI(TAG, "Menunggu 1 detik...");
@@ -291,12 +366,13 @@ extern "C" void app_main(void) {
     debug_network_path();
     vTaskDelay(pdMS_TO_TICKS(1000));
 
-    display_status("Menghubungkan AI...");
-    websocket_app_start();
+    display_status("Sistem siap. Tekan tombol untuk mulai...");
 
     BaseType_t task_result = xTaskCreate(audio_task, "audio_task", 10240, NULL, 5, NULL);
-    if (task_result != pdPASS) ESP_LOGE(TAG, "Gagal membuat audio_task!");
-    else ESP_LOGI(TAG, "audio_task berhasil dimulai.");
+    if (task_result != pdPASS)
+        ESP_LOGE(TAG, "Gagal membuat audio_task!");
+    else
+        ESP_LOGI(TAG, "audio_task berhasil dimulai.");
 
     while (1) vTaskDelay(pdMS_TO_TICKS(1000));
 }
