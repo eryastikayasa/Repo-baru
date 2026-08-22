@@ -22,8 +22,8 @@ static SemaphoreHandle_t audio_send_mutex = NULL;
 
 #define AUDIO_OUTPUT_SAMPLE_RATE       24000U
 #define AUDIO_OUTPUT_BYTES_PER_SEC     (AUDIO_OUTPUT_SAMPLE_RATE * 2U)
-#define AUDIO_RING_BUFFER_SIZE         (48 * 1024)
-#define AUDIO_PLAYBACK_PREBUFFER_SIZE  (16 * 1024)
+#define AUDIO_RING_BUFFER_SIZE         (64 * 1024)
+#define AUDIO_PLAYBACK_PREBUFFER_SIZE  (24 * 1024)
 #define AUDIO_PLAYBACK_READ_SIZE       2048
 #define AUDIO_PLAYBACK_READ_WAIT_MS    5
 #define AUDIO_PLAYBACK_TRIGGER_SIZE    1024
@@ -254,7 +254,7 @@ bool start_audio_playback(void)
         audio_playback_task_handle = NULL;
         return false;
     }
-    ESP_LOGI(TAG, "Audio ring buffer siap: %u byte, prebuffer=%u, target=%u B/s, playback core=0 priority=3",
+    ESP_LOGI(TAG, "Audio ring buffer siap: %u byte, prebuffer=%u, target=%u B/s, playback core=0 priority=6",
              (unsigned)AUDIO_RING_BUFFER_SIZE,
              (unsigned)AUDIO_PLAYBACK_PREBUFFER_SIZE,
              (unsigned)AUDIO_OUTPUT_BYTES_PER_SEC);
