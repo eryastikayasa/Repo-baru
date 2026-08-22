@@ -99,27 +99,17 @@ static bool preallocate_rx_slots(void)
 {
     if (rx_slots_preallocated) return true;
 
-    // Slot 0-1: 40 KB untuk payload besar
-    for (int i = 0; i < 2; ++i) {
-        if (!allocate_persistent_slot(i, 40 * 1024)) {
-            ESP_LOGE(TAG, "Prealokasi slot besar gagal: slot=%d", i);
-            return false;
-        }
-        release_slot(i);
-    }
-
-    // Slot 2-7: 8 KB untuk payload normal/compact
-    for (int i = 2; i < WS_RX_SLOT_COUNT; ++i) {
+    // Semua slot 8 KB — cukup untuk compact JSON dan payload kecil
+    for (int i = 0; i < WS_RX_SLOT_COUNT; ++i) {
         if (!allocate_persistent_slot(i, 8 * 1024)) {
-            ESP_LOGE(TAG, "Prealokasi slot kecil gagal: slot=%d", i);
+            ESP_LOGE(TAG, "Prealokasi slot gagal: slot=%d", i);
             return false;
         }
         release_slot(i);
     }
 
     rx_slots_preallocated = true;
-    ESP_LOGI(TAG, "Prealokasi RX slot selesai: 2x40KB + %dx8KB",
-             (unsigned)(WS_RX_SLOT_COUNT - 2));
+    ESP_LOGI(TAG, "Prealokasi RX slot selesai: %dx8KB", (unsigned)WS_RX_SLOT_COUNT);
     return true;
 }
 
@@ -504,36 +494,7 @@ bool websocket_rx_enqueue_data(esp_websocket_event_data_t *data, uint32_t genera
             return false;
         }
 
-        // ==== Pemilihan slot besar/kecil ====
-        bool need_large = payload_len >= (8 * 1024);   // perbaikan: >= agar 8192 masuk slot besar
-        if (need_large && slot >= 2) {
-            int free_large = -1;
-            for (int i = 0; i < 2; ++i) {
-                if (!rx_slot_in_use[i]) { free_large = i; break; }
-            }
-            if (free_large == -1) {
-                release_slot(slot);
-                ++rx_fragments_dropped; ++rx_buffer_drops;
-                stream_discard_message(payload_len, len);
-                ESP_LOGW(TAG, "Slot besar penuh, payload=%u", (unsigned)payload_len);
-                return false;
-            }
-            slot = free_large;
-        } else if (!need_large && slot < 2) {
-            int free_small = -1;
-            for (int i = 2; i < WS_RX_SLOT_COUNT; ++i) {
-                if (!rx_slot_in_use[i]) { free_small = i; break; }
-            }
-            if (free_small == -1) {
-                release_slot(slot);
-                ++rx_fragments_dropped; ++rx_buffer_drops;
-                stream_discard_message(payload_len, len);
-                ESP_LOGW(TAG, "Slot kecil penuh, payload=%u", (unsigned)payload_len);
-                return false;
-            }
-            slot = free_small;
-        }
-        // ==== Akhir pemilihan slot ====
+        
 
         size_t required = ws_rx_streaming ? (WS_RX_STREAM_COMPACT_SIZE - 1) : payload_len;
         if (!ensure_slot_buffer(slot, required)) {
