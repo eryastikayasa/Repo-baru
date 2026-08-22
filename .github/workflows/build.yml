@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - fix/xiaozhi-style-speaker-pcm16
+      - fix/geminiproject
   pull_request:
     branches:
       - main
@@ -56,10 +56,15 @@ jobs:
         run: |
           pio platform show espressif32
           pio pkg list
+          
+          pio run -t clean
+          pio run
 
       # ============================================================
       # BUILD
       # ============================================================
+         
+      
       - name: Build ESP32-S3
         run: pio run
 
