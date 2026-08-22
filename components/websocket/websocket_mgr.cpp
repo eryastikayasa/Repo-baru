@@ -200,7 +200,7 @@ bool websocket_tx_init(void)
         if (!websocket_tx_queue) return false;
     }
     if (!websocket_tx_task_handle) {
-        if (xTaskCreate(websocket_tx_task, "ws_tx", 8192, NULL, 6, &websocket_tx_task_handle) != pdPASS) return false;
+        if (xTaskCreate(websocket_tx_task, "ws_tx", 8192, NULL, 4, &websocket_tx_task_handle) != pdPASS) return false;
     }
     return true;
 }
