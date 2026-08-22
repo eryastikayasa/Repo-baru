@@ -42,12 +42,19 @@ static size_t send_realtime_pcm(const uint8_t *data, size_t len)
         chunk &= ~((size_t)1);
         if (chunk == 0) break;
 
-        // Flow control: tunggu sampai ruang minimal satu chunk tersedia.
-        size_t spaces = xStreamBufferSpacesAvailable(audio_stream);
-        if (spaces < chunk) {
-            vTaskDelay(pdMS_TO_TICKS(1));
-            continue;
-        }
+       TickType_t start = xTaskGetTickCount();
+
+while (xStreamBufferSpacesAvailable(audio_stream) < chunk) {
+    if ((xTaskGetTickCount() - start) > pdMS_TO_TICKS(50)) {
+        break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(1));
+}
+
+if (xStreamBufferSpacesAvailable(audio_stream) < chunk) {
+    // gagal setelah timeout
+    break;
+}
 
         size_t written = xStreamBufferSend(audio_stream, data + offset, chunk,
                                            pdMS_TO_TICKS(AUDIO_SEND_WAIT_MS));
