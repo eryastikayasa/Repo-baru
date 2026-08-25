@@ -56,26 +56,31 @@ jobs:
         run: |
           pio platform show espressif32
           pio pkg list
-          
           pio run -t clean
           pio run
 
       # ============================================================
       # BUILD
       # ============================================================
-         
-      
       - name: Build ESP32-S3
         run: pio run
 
       # ============================================================
-      # VERIFY BUILD OUTPUT
+      # VERIFY BUILD OUTPUT + ESP-SR MODEL IMAGE
       # ============================================================
-      - name: Verify Firmware
+      - name: Verify Firmware and ESP-SR Model
         run: |
-          test -f .pio/build/esp32-s3-devkitc-1/firmware.bin
-          test -f .pio/build/esp32-s3-devkitc-1/bootloader.bin
-          test -f .pio/build/esp32-s3-devkitc-1/partitions.bin
+          BUILD=.pio/build/esp32-s3-devkitc-1
+          test -f "$BUILD/firmware.bin"
+          test -f "$BUILD/bootloader.bin"
+          test -f "$BUILD/partitions.bin"
+
+          # ESP-SR CMake generates this from CONFIG_SR_WN_WN9_HIESP.
+          test -f "$BUILD/srmodels/srmodels.bin"
+          ls -lh "$BUILD/srmodels/srmodels.bin"
+
+          echo "ESP-SR model image:" 
+          du -h "$BUILD/srmodels/srmodels.bin"
 
       # ============================================================
       # ARTIFACTS
@@ -89,3 +94,4 @@ jobs:
             .pio/build/esp32-s3-devkitc-1/firmware.bin
             .pio/build/esp32-s3-devkitc-1/bootloader.bin
             .pio/build/esp32-s3-devkitc-1/partitions.bin
+            .pio/build/esp32-s3-devkitc-1/srmodels/srmodels.bin
