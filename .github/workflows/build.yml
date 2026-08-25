@@ -15,9 +15,6 @@ jobs:
     name: Build ESP-SR WakeNet9 model
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -42,9 +39,8 @@ jobs:
           mkdir -p "$MODEL_ROOT"
           cp -a "$MODEL_SRC" "$MODEL_DST"
 
-          # Use Espressif's official pack_model.py directly.
-          # This avoids movemodel.py's sdkconfig parser and deliberately
-          # packages only the selected WakeNet9 Hi ESP model.
+          # Espressif's official packer. We intentionally package only
+          # WakeNet9 Hi ESP, so the firmware's sdkconfig parser is not involved.
           python -u /tmp/esp-sr/model/pack_model.py \
             -m "$MODEL_ROOT" \
             -o srmodels.bin
@@ -106,20 +102,44 @@ jobs:
           name: ESP-SR-WakeNet9-HiESP-v2.4.5
           path: model-artifact
 
-      - name: Stage ESP-SR model before CMake configure
+      - name: Install CMake-compatible ESP-SR model wrapper
         run: |
           set -euo pipefail
-          MODEL_ARTIFACT="$PWD/model-artifact/srmodels.bin"
-          BUILD="$PWD/.pio/build/esp32-s3-devkitc-1"
-          MODEL_OUT="$BUILD/srmodels/srmodels.bin"
+          REAL_PYTHON="$(command -v python)"
+          mkdir -p "$PWD/ci-bin"
+          cat > "$PWD/ci-bin/python" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+REAL_PYTHON="$REAL_PYTHON"
+MODEL_SOURCE="$GITHUB_WORKSPACE/model-artifact/srmodels.bin"
 
-          test -s "$MODEL_ARTIFACT"
-          mkdir -p "$(dirname "$MODEL_OUT")"
-          cp "$MODEL_ARTIFACT" "$MODEL_OUT"
+# ESP-SR's CMakeLists.txt invokes: python .../model/movemodel.py -d1 ... -d2 ... -d3 <build>
+# The model is already built by the separate model job with Espressif's official pack_model.py.
+# Intercept only that packaging call; all other Python invocations are delegated unchanged.
+if [ "\${1:-}" = "${PWD}/.pio/build/esp32-s3-devkitc-1/managed_components/espressif__esp-sr/model/movemodel.py" ] || [[ "\${1:-}" == */esp-sr/model/movemodel.py ]]; then
+  BUILD_DIR=""
+  prev=""
+  for arg in "\$@"; do
+    if [ "\$prev" = "-d3" ]; then BUILD_DIR="\$arg"; fi
+    prev="\$arg"
+  done
+  test -n "\$BUILD_DIR"
+  test -s "\$MODEL_SOURCE"
+  mkdir -p "\$BUILD_DIR/srmodels"
+  cp "\$MODEL_SOURCE" "\$BUILD_DIR/srmodels/srmodels.bin"
+  test -s "\$BUILD_DIR/srmodels/srmodels.bin"
+  echo "ESP-SR CMake model target: using prebuilt official srmodels.bin"
+  sha256sum "\$BUILD_DIR/srmodels/srmodels.bin"
+  exit 0
+fi
 
-          echo "Pre-seeded ESP-SR model: $MODEL_OUT"
-          stat "$MODEL_OUT"
-          sha256sum "$MODEL_OUT"
+exec "\$REAL_PYTHON" "\$@"
+EOF
+          chmod +x "$PWD/ci-bin/python"
+          export PATH="$PWD/ci-bin:$PATH"
+          echo "PATH=$PATH" >> "$GITHUB_ENV"
+          echo "ESP-SR model wrapper installed"
+          cat "$PWD/ci-bin/python"
 
       - name: Build ESP32-S3
         run: pio run
@@ -148,7 +168,7 @@ jobs:
           echo "Flash size: 16MB PASS"
           echo "Custom partition table: PASS"
           echo "WakeNet9 Hi ESP config: PASS"
-          echo "Prebuilt ESP-SR model retained by CMake: PASS"
+          echo "CMake model target satisfied by official prebuilt image: PASS"
           echo "Model artifact matches firmware build: PASS"
 
       - name: Audit final sdkconfig and CA bundle
