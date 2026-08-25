@@ -48,8 +48,7 @@ jobs:
           test -s components/websocket/include/gemini_api_key.h
 
       - name: Clean build
-        
-        pio run -t clean
+        run: pio run -t clean
 
       - name: Build ESP32-S3
         run: pio run
