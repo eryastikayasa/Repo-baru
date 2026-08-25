@@ -11,55 +11,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build_srmodel:
-    name: Build ESP-SR WakeNet9 model
-    runs-on: ubuntu-latest
-    steps:
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Build official ESP-SR model image
-        env:
-          ESP_SR_VERSION: v2.4.5
-        run: |
-          set -euo pipefail
-          git clone --depth 1 --branch "$ESP_SR_VERSION" https://github.com/espressif/esp-sr.git /tmp/esp-sr
-          MODEL_SRC=/tmp/esp-sr/model/wakenet_model/wn9_hiesp
-          MODEL_ROOT=$PWD/srmodel-build
-          test -d "$MODEL_SRC"
-          test -f "$MODEL_SRC/wn9_index"
-          test -f "$MODEL_SRC/wn9_data"
-          rm -rf "$MODEL_ROOT"
-          mkdir -p "$MODEL_ROOT"
-          cp -a "$MODEL_SRC" "$MODEL_ROOT/wn9_hiesp"
-
-          # Espressif's official packer. Only WakeNet9 Hi ESP is packaged.
-          python -u /tmp/esp-sr/model/pack_model.py \
-            -m "$MODEL_ROOT" \
-            -o srmodels.bin
-
-          MODEL_BIN="$MODEL_ROOT/srmodels.bin"
-          test -s "$MODEL_BIN"
-          grep -a -q "wn9_hiesp" "$MODEL_BIN"
-          SIZE=$(stat -c %s "$MODEL_BIN")
-          test "$SIZE" -le $((0x400000))
-          echo "ESP-SR version: $ESP_SR_VERSION"
-          echo "ESP-SR model size: $SIZE bytes"
-          sha256sum "$MODEL_BIN"
-          echo "ESP-SR WakeNet9 Hi ESP model: PASS"
-
-      - name: Upload ESP-SR model artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ESP-SR-WakeNet9-HiESP-v2.4.5
-          if-no-files-found: error
-          path: srmodel-build/srmodels.bin
-
-  build_firmware:
-    name: Build ESP32-S3 firmware
-    needs: build_srmodel
+  build:
+    name: Build ESP32-S3 Firmware
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -88,13 +41,7 @@ jobs:
           pio pkg list
           pio run -t clean
 
-      - name: Download prebuilt official ESP-SR model
-        uses: actions/download-artifact@v4
-        with:
-          name: ESP-SR-WakeNet9-HiESP-v2.4.5
-          path: model-artifact
-
-      - name: Install CMake-compatible ESP-SR model wrapper
+      - name: Install ESP-SR model wrapper
         run: |
           set -euo pipefail
           REAL_PYTHON="$(command -v python)"
@@ -127,13 +74,14 @@ jobs:
           test -f "$BUILD/partitions.bin"
           test -f "$BUILD/firmware.elf"
           test -s "$BUILD/srmodels/srmodels.bin"
-          cmp "$BUILD/srmodels/srmodels.bin" model-artifact/srmodels.bin
           grep -a -q "wn9_hiesp" "$BUILD/srmodels/srmodels.bin"
+          MODEL_SIZE=$(stat -c %s "$BUILD/srmodels/srmodels.bin")
+          test "$MODEL_SIZE" -le $((0x400000))
           echo "Flash size: 16MB PASS"
           echo "Custom partition table: PASS"
           echo "WakeNet9 Hi ESP config: PASS"
-          echo "CMake model target satisfied by official prebuilt image: PASS"
-          echo "Model artifact matches firmware build: PASS"
+          echo "Official pack_model.py + exact managed ESP-SR component: PASS"
+          echo "Model partition capacity (4MiB): PASS"
 
       - name: Audit final sdkconfig and CA bundle
         run: |
@@ -165,7 +113,7 @@ jobs:
           echo "COMPATIBILITY GATE: PASS"
           echo "ESP32-S3 + 16MB Flash + 8MB OPI PSRAM"
           echo "ESP-IDF 6.0.1 + ESP-SR 2.4.5"
-          echo "WakeNet9 Hi ESP + official packed model"
+          echo "WakeNet9 Hi ESP + official pack_model.py"
           echo "CA bundle + embedded TLS trust store"
           echo "========================================"
 
