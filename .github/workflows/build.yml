@@ -70,6 +70,7 @@ jobs:
           echo "--- Custom partition configuration ---"
           grep -E '^CONFIG_PARTITION_TABLE_CUSTOM=y$' "$SDKCONFIG"
           grep -E '^CONFIG_PARTITION_TABLE_CUSTOM_FILENAME=\"partitions/partitions.csv\"$' "$SDKCONFIG"
+          grep -E '^model,.*0x400000' partitions/partitions.csv
 
           echo "--- WakeNet configuration ---"
           grep -E '^CONFIG_SR_WN_WN9_HIESP=y$' "$SDKCONFIG"
@@ -82,73 +83,51 @@ jobs:
           echo "Flash size: 16MB PASS"
           echo "Custom partition table: PASS"
           echo "WakeNet9 Hi ESP config: PASS"
+          echo "Model partition: 4MB PASS"
 
       # ============================================================
-      # AUDIT 2: ESP-SR NATIVE MODEL PACKER
+      # AUDIT 2: USE ESP-SR'S REAL CMAKE MODEL TARGET
       # ============================================================
-      - name: Generate or locate ESP-SR srmodels.bin
+      - name: Generate ESP-SR srmodels.bin with native CMake target
         run: |
           set -euo pipefail
           BUILD=.pio/build/esp32-s3-devkitc-1
 
-          # ESP-SR 2.4.1 creates this through its CMake target when the
-          # project is built/flashed with ESP-IDF. PlatformIO may not invoke
-          # the flash target, so first look for the native output.
-          MODEL_BIN="$(find "$BUILD" -type f -path '*/srmodels/srmodels.bin' -print -quit || true)"
+          echo "--- Checking ESP-SR CMake target ---"
+          grep -R -n --include='build.ninja' 'srmodels_bin' "$BUILD" || true
+          grep -R -n --include='build.ninja' 'Move and Pack models' "$BUILD" || true
 
-          if [ -z "$MODEL_BIN" ]; then
-            if [ -f sdkconfig ]; then
-              SDKCONFIG=sdkconfig
-            else
-              SDKCONFIG="$(find . -maxdepth 1 -type f -name 'sdkconfig.*' ! -name 'sdkconfig.defaults' -print -quit)"
-            fi
-            test -f "$SDKCONFIG"
-
-            # PlatformIO/ESP-IDF component-manager locations vary. Discover
-            # the official ESP-SR model packer instead of assuming a .pio path.
-            ESP_SR_MOVEMODEL="$(find .pio "$HOME/.platformio" -type f -path '*/esp-sr/model/movemodel.py' -print -quit 2>/dev/null || true)"
-            if [ -z "$ESP_SR_MOVEMODEL" ]; then
-              ESP_SR_MOVEMODEL="$(find .pio "$HOME/.platformio" -type f -name 'movemodel.py' -print -quit 2>/dev/null || true)"
-            fi
-
-            test -n "$ESP_SR_MOVEMODEL"
-            test -f "$ESP_SR_MOVEMODEL"
-
-            # movemodel.py lives at <esp-sr-component>/model/movemodel.py.
-            ESP_SR_DIR="$(dirname "$(dirname "$ESP_SR_MOVEMODEL")")"
-            test -f "$ESP_SR_DIR/model/movemodel.py"
-            test -d "$ESP_SR_DIR/model/wakenet_model"
-
-            echo "Using final sdkconfig: $SDKCONFIG"
-            echo "Using official ESP-SR model packer: $ESP_SR_MOVEMODEL"
-            echo "Using ESP-SR component: $ESP_SR_DIR"
-
-            # This is the same command used by ESP-SR's CMakeLists.txt.
-            python "$ESP_SR_MOVEMODEL" \
-              -d1 "$SDKCONFIG" \
-              -d2 "$ESP_SR_DIR" \
-              -d3 "$BUILD"
-
-            MODEL_BIN="$BUILD/srmodels/srmodels.bin"
+          echo "--- Running official ESP-SR CMake target: srmodels_bin ---"
+          if ! pio run -t srmodels_bin; then
+            echo "ERROR: PlatformIO did not expose the ESP-SR srmodels_bin target."
+            echo "--- ESP-SR managed component locations ---"
+            find .pio -type d -path '*/managed_components/*esp-sr*' -print || true
+            echo "--- ESP-SR model packer locations ---"
+            find .pio -type f -path '*/esp-sr/model/movemodel.py' -print || true
+            echo "--- CMake/Ninja references ---"
+            grep -R -n --include='build.ninja' 'esp-sr' "$BUILD" | head -80 || true
+            exit 1
           fi
 
+          MODEL_BIN="$BUILD/srmodels/srmodels.bin"
           test -f "$MODEL_BIN"
-          MODEL_BIN="$(realpath "$MODEL_BIN")"
           MODEL_SIZE="$(stat -c %s "$MODEL_BIN")"
 
           echo "ESP-SR model image: $MODEL_BIN"
           echo "ESP-SR model size: $MODEL_SIZE bytes"
 
-          # model partition is 0x100000 = 1 MiB in this project.
+          # This project allocates 0x400000 (4 MiB) to the model partition.
           test "$MODEL_SIZE" -gt 0
-          test "$MODEL_SIZE" -le $((0x100000))
+          test "$MODEL_SIZE" -le $((0x400000))
 
-          # The packer should leave the selected WakeNet model directory.
+          # ESP-SR's packer must include the selected WakeNet model.
           test -d "$BUILD/srmodels/wn9_hiesp"
           test -f "$BUILD/srmodels/wn9_hiesp/wn9_index"
+          test -f "$BUILD/srmodels/wn9_hiesp/wn9_data"
 
           echo "WakeNet9 model image: PASS"
-          echo "Model partition capacity (1MiB): PASS"
+          echo "Model partition capacity (4MiB): PASS"
+          echo "Native ESP-SR model packer: PASS"
 
       # ============================================================
       # AUDIT 3: FINAL SDKCONFIG + EMBEDDED CA BUNDLE
@@ -172,8 +151,6 @@ jobs:
           test "$(grep -E '^CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y$' "$SDKCONFIG" | wc -l)" -eq 1
           test "$(grep -E '^CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y$' "$SDKCONFIG" | wc -l)" -eq 1
 
-          # Inspect the actual ELF. This is stronger than checking defaults:
-          # the embedded x509 bundle must exist in the linked firmware.
           readelf -Ws "$ELF" | grep -E '_binary_x509_crt_bundle_(start|end)'
           test "$(readelf -Ws "$ELF" | grep -c '_binary_x509_crt_bundle_start')" -ge 1
           test "$(readelf -Ws "$ELF" | grep -c '_binary_x509_crt_bundle_end')" -ge 1
@@ -195,9 +172,9 @@ jobs:
           test -f "$BUILD/srmodels/srmodels.bin"
           echo "========================================"
           echo "COMPATIBILITY GATE: PASS"
-          echo "ESP-IDF 6.0.1 + ESP-SR 2.4.1"
-          echo "16MB flash + custom model partition"
-          echo "WakeNet9 Hi ESP + srmodels.bin"
+          echo "ESP32-S3 + 16MB Flash + 8MB OPI PSRAM"
+          echo "ESP-IDF 6.0.1 + ESP-SR 2.4.5"
+          echo "WakeNet9 Hi ESP + native srmodels.bin"
           echo "CA bundle + embedded TLS trust store"
           echo "========================================"
 
