@@ -13,7 +13,7 @@
 // Jangan upload API key ke repository publik.
 // ============================================================
 
-#define GEMINI_API_KEY "AQ.Ab8RN6IBuQxNOsnWZVCbDpvyVOnPNRzTzj-2oV1T5UsYOF4yrQ"
+#define GEMINI_API_KEY 
 
 // ============================================================
 // GEMINI LIVE API WEBSOCKET
