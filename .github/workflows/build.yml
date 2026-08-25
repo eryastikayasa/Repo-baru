@@ -41,19 +41,48 @@ jobs:
           pio pkg list
           pio run -t clean
 
-      - name: Install ESP-SR model wrapper
-        run: |
-          set -euo pipefail
-          REAL_PYTHON="$(command -v python)"
-          mkdir -p "$PWD/ci-bin"
-          cp scripts/esp_sr_python_wrapper.sh "$PWD/ci-bin/python"
-          chmod +x "$PWD/ci-bin/python"
-          echo "REAL_PYTHON=$REAL_PYTHON" >> "$GITHUB_ENV"
-          echo "PATH=$PWD/ci-bin:$PATH" >> "$GITHUB_ENV"
-          echo "ESP-SR wrapper installed"
-
       - name: Build ESP32-S3
         run: pio run
+
+      - name: Generate ESP-SR srmodels.bin with official movemodel.py
+        run: |
+          set -euo pipefail
+          BUILD="$PWD/.pio/build/esp32-s3-devkitc-1"
+          test -d "$BUILD"
+
+          if [ -f sdkconfig ]; then
+            SDKCONFIG="$PWD/sdkconfig"
+          else
+            SDKCONFIG="$(find "$PWD" -maxdepth 1 -type f -name 'sdkconfig.*' ! -name 'sdkconfig.defaults' -print -quit)"
+          fi
+          test -n "$SDKCONFIG" && test -f "$SDKCONFIG"
+
+          ESP_SR_DIR="$(find "$BUILD/managed_components" -maxdepth 2 -type d -path '*/espressif__esp-sr' -print -quit 2>/dev/null || true)"
+          if [ -z "$ESP_SR_DIR" ]; then
+            ESP_SR_DIR="$(find .pio -type d -path '*/managed_components/espressif__esp-sr' -print -quit 2>/dev/null || true)"
+          fi
+          test -n "$ESP_SR_DIR"
+          test -f "$ESP_SR_DIR/model/movemodel.py"
+
+          echo "Final sdkconfig: $SDKCONFIG"
+          echo "Exact managed ESP-SR component: $ESP_SR_DIR"
+          echo "Python: $(python --version)"
+          echo "Generating model with Espressif's official movemodel.py"
+
+          python -u "$ESP_SR_DIR/model/movemodel.py" \
+            -d1 "$SDKCONFIG" \
+            -d2 "$ESP_SR_DIR" \
+            -d3 "$BUILD"
+
+          MODEL="$BUILD/srmodels/srmodels.bin"
+          test -s "$MODEL"
+          test -f "$BUILD/srmodels/wn9_hiesp/wn9_index"
+          test -f "$BUILD/srmodels/wn9_hiesp/wn9_data"
+          MODEL_SIZE=$(stat -c %s "$MODEL")
+          test "$MODEL_SIZE" -le $((0x400000))
+          echo "ESP-SR model image: $MODEL"
+          echo "ESP-SR model size: $MODEL_SIZE bytes"
+          echo "WakeNet9 Hi ESP model files: PASS"
 
       - name: Audit final sdkconfig, 16MB flash and WakeNet9
         run: |
@@ -74,13 +103,16 @@ jobs:
           test -f "$BUILD/partitions.bin"
           test -f "$BUILD/firmware.elf"
           test -s "$BUILD/srmodels/srmodels.bin"
+          test -f "$BUILD/srmodels/wn9_hiesp/wn9_index"
+          test -f "$BUILD/srmodels/wn9_hiesp/wn9_data"
           grep -a -q "wn9_hiesp" "$BUILD/srmodels/srmodels.bin"
           MODEL_SIZE=$(stat -c %s "$BUILD/srmodels/srmodels.bin")
           test "$MODEL_SIZE" -le $((0x400000))
           echo "Flash size: 16MB PASS"
           echo "Custom partition table: PASS"
           echo "WakeNet9 Hi ESP config: PASS"
-          echo "Official pack_model.py + exact managed ESP-SR component: PASS"
+          echo "Official ESP-SR movemodel.py: PASS"
+          echo "WakeNet9 model payload: PASS"
           echo "Model partition capacity (4MiB): PASS"
 
       - name: Audit final sdkconfig and CA bundle
@@ -108,16 +140,19 @@ jobs:
           test -f "$BUILD/bootloader.bin"
           test -f "$BUILD/partitions.bin"
           test -f "$BUILD/firmware.elf"
-          test -f "$BUILD/srmodels/srmodels.bin"
+          test -s "$BUILD/srmodels/srmodels.bin"
+          test -f "$BUILD/srmodels/wn9_hiesp/wn9_index"
+          test -f "$BUILD/srmodels/wn9_hiesp/wn9_data"
           echo "========================================"
           echo "COMPATIBILITY GATE: PASS"
           echo "ESP32-S3 + 16MB Flash + 8MB OPI PSRAM"
           echo "ESP-IDF 6.0.1 + ESP-SR 2.4.5"
-          echo "WakeNet9 Hi ESP + official pack_model.py"
+          echo "WakeNet9 Hi ESP + official movemodel.py"
           echo "CA bundle + embedded TLS trust store"
+          echo "Model partition: 4MiB"
           echo "========================================"
 
-      - name: Upload firmware artifacts
+      - name: Upload firmware and ESP-SR model artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ESP32S3-Firmware-Full
