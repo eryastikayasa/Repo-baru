@@ -44,6 +44,34 @@ jobs:
       - name: Build ESP32-S3
         run: pio run
 
+      - name: Download ESP-SR v2.4.5 model source
+        run: |
+          set -euo pipefail
+
+          # ESP-SR v2.4.5 is represented by this upstream commit.
+          # The Git tag v2.4.5 is not present in the upstream Git repository.
+          ESP_SR_COMMIT="5fadfbd5bd9df756f543973bd43520d9270ffb1b"
+          SRC_DIR="$RUNNER_TEMP/esp-sr-v2.4.5"
+
+          rm -rf "$SRC_DIR"
+          mkdir -p "$SRC_DIR"
+          cd "$SRC_DIR"
+          git init
+          git remote add origin https://github.com/espressif/esp-sr.git
+          git config core.sparseCheckout true
+          git sparse-checkout set model/wakenet_model/wn9_hiesp
+          git fetch --depth 1 origin "$ESP_SR_COMMIT"
+          git checkout --detach FETCH_HEAD
+
+          MODEL_SRC="$SRC_DIR/model/wakenet_model/wn9_hiesp"
+          test -d "$MODEL_SRC"
+          test -s "$MODEL_SRC/wn9_index"
+          test -s "$MODEL_SRC/wn9_data"
+
+          echo "ESP-SR v2.4.5 commit: $ESP_SR_COMMIT"
+          echo "Model source: $MODEL_SRC"
+          ls -lah "$MODEL_SRC"
+
       - name: Generate ESP-SR srmodels.bin with repository pack_model.py
         env:
           PYTHONUNBUFFERED: "1"
@@ -61,29 +89,19 @@ jobs:
           fi
           test -n "$SDKCONFIG" && test -f "$SDKCONFIG"
 
-          ESP_SR_DIR="$(find "$BUILD/managed_components" -maxdepth 2 -type d -path '*/espressif__esp-sr' -print -quit 2>/dev/null || true)"
-          if [ -z "$ESP_SR_DIR" ]; then
-            ESP_SR_DIR="$(find .pio -type d -path '*/managed_components/espressif__esp-sr' -print -quit 2>/dev/null || true)"
-          fi
-          test -n "$ESP_SR_DIR"
-          test -d "$ESP_SR_DIR"
-
-          # The component-registry package may omit the Python model tools.
-          # Use the exact ESP-SR packer committed in this repository.
           PACKER="$PWD/scripts/pack_model.py"
           test -f "$PACKER"
 
-          MODEL_SRC="$ESP_SR_DIR/model/wakenet_model/wn9_hiesp"
+          MODEL_SRC="$RUNNER_TEMP/esp-sr-v2.4.5/model/wakenet_model/wn9_hiesp"
           test -d "$MODEL_SRC"
           test -s "$MODEL_SRC/wn9_index"
           test -s "$MODEL_SRC/wn9_data"
 
           echo "=== ESP-SR MODEL DIAGNOSTIC ==="
           echo "Final sdkconfig: $SDKCONFIG"
-          echo "Exact managed ESP-SR component: $ESP_SR_DIR"
           echo "Repository packer: $PACKER"
           echo "Python: $(python --version)"
-          echo "ESP-SR model source: $MODEL_SRC"
+          echo "ESP-SR v2.4.5 model source: $MODEL_SRC"
           grep -E '^CONFIG_IDF_TARGET=' "$SDKCONFIG" || true
           grep -E '^CONFIG_SR_WN_WN9_HIESP=y$' "$SDKCONFIG"
           echo "--- source model files ---"
@@ -91,7 +109,6 @@ jobs:
           echo "--- packer syntax check ---"
           python -m py_compile "$PACKER"
 
-          # Build-system-compatible output directory.
           mkdir -p "$BUILD/srmodels"
           rm -f "$BUILD/srmodels/srmodels.bin"
           rm -rf "$BUILD/srmodels/wn9_hiesp"
