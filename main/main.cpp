@@ -322,6 +322,11 @@ static void audio_task(void *arg)
     uint32_t silent_frames = 0;
     int64_t last_silent_log_us = 0;
 
+    // WakeNet diagnostics: idle-only, no change to the detection flow.
+    static int64_t last_debug_us = 0;
+    static int detect_calls = 0;
+    static int last_wake_result = 0;
+
     while (1) {
         // audio_read_mic() returns PCM16 mono at 16 kHz.
         size_t bytes_read = audio_read_mic(audio_buffer + buffer_pos,
@@ -330,6 +335,32 @@ static void audio_task(void *arg)
 
         if (!assistant_active) {
             // ========== MODE IDLE: tunggu "Hi, ESP" ==========
+            // Diagnostic setiap 1 detik. Tidak mengubah logika utama.
+            int64_t now_debug_us = esp_timer_get_time();
+            if (now_debug_us - last_debug_us >= 1000000) {
+                last_debug_us = now_debug_us;
+                int32_t max_abs = 0;
+                size_t wake_bytes = (size_t)wake_chunk_samples * sizeof(int16_t);
+
+                if (wake_chunk_samples > 0 && buffer_pos >= wake_bytes) {
+                    int16_t *pcm = reinterpret_cast<int16_t *>(audio_buffer);
+                    for (int i = 0; i < wake_chunk_samples; ++i) {
+                        int32_t val = pcm[i];
+                        int32_t magnitude = val < 0 ? -val : val;
+                        if (magnitude > max_abs) max_abs = magnitude;
+                    }
+                }
+
+                ESP_LOGI("WAKE_DEBUG",
+                         "buffer_pos=%u max_abs=%ld detect_calls=%d last_result=%d chunk_samples=%d bytes_read=%u",
+                         (unsigned)buffer_pos,
+                         (long)max_abs,
+                         detect_calls,
+                         last_wake_result,
+                         wake_chunk_samples,
+                         (unsigned)bytes_read);
+            }
+
             // Feed WakeNet only complete model chunks. If the audio HAL
             // returns smaller/larger reads, accumulate them until a full
             // chunk is available instead of silently dropping samples.
@@ -337,7 +368,9 @@ static void audio_task(void *arg)
                    buffer_pos >= (size_t)wake_chunk_samples * sizeof(int16_t)) {
                 size_t wake_bytes = (size_t)wake_chunk_samples * sizeof(int16_t);
                 int16_t *wake_pcm = reinterpret_cast<int16_t *>(audio_buffer);
+                detect_calls++;
                 int wake_result = wake_iface->detect(wake_model, wake_pcm);
+                last_wake_result = wake_result;
 
                 if (wake_result > 0) {
                     ESP_LOGW(TAG, ">>> WAKE WORD TERDETEKSI: HI, ESP (id=%d)", wake_result);
