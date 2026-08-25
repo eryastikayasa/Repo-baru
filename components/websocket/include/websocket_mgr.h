@@ -7,13 +7,12 @@
 // ============================================================
 // GEMINI API KEY
 // ============================================================
-// Untuk sementara gunakan API key pengujian kamu di sini.
+// API key disediakan saat build melalui GitHub Actions secret:
+// GEMINI_API_KEY
 //
-// CATATAN:
-// Jangan upload API key ke repository publik.
+// Jangan simpan API key asli di source repository.
 // ============================================================
-
-#define GEMINI_API_KEY 
+#include "gemini_api_key.h"
 
 // ============================================================
 // GEMINI LIVE API WEBSOCKET
