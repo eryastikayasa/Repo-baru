@@ -9,9 +9,7 @@ idf_component_register(
         esp-sr
 )
 
-# ESP-SR 2.4.1 owns the model packaging flow.
-# With CONFIG_PARTITION_TABLE_CUSTOM=y and a partition named "model",
-# its CMakeLists.txt generates build/srmodels/srmodels.bin from
-# CONFIG_SR_WN_WN9_HIESP and attaches it to the model partition.
-# Do not manually package wn9_hiesp here; that would bypass the
-# ESP-SR model packer and is incompatible with its srmodels format.
+# ESP-SR 2.4.5 is the pinned speech-recognition component used by this project.
+# The main branch selects WakeNet9 Hi ESP through sdkconfig.defaults.
+# The model partition is named "model" and is 4 MiB in partitions/partitions.csv.
+# CI packages the exact upstream WakeNet9 Hi ESP model into srmodels.bin.
