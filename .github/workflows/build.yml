@@ -26,21 +26,16 @@ jobs:
         run: |
           set -euo pipefail
           git clone --depth 1 --branch "$ESP_SR_VERSION" https://github.com/espressif/esp-sr.git /tmp/esp-sr
-
           MODEL_SRC=/tmp/esp-sr/model/wakenet_model/wn9_hiesp
           MODEL_ROOT=$PWD/srmodel-build
-          MODEL_DST=$MODEL_ROOT/wn9_hiesp
-
           test -d "$MODEL_SRC"
           test -f "$MODEL_SRC/wn9_index"
           test -f "$MODEL_SRC/wn9_data"
-
           rm -rf "$MODEL_ROOT"
           mkdir -p "$MODEL_ROOT"
-          cp -a "$MODEL_SRC" "$MODEL_DST"
+          cp -a "$MODEL_SRC" "$MODEL_ROOT/wn9_hiesp"
 
-          # Espressif's official packer. We intentionally package only
-          # WakeNet9 Hi ESP, so the firmware's sdkconfig parser is not involved.
+          # Espressif's official packer. Only WakeNet9 Hi ESP is packaged.
           python -u /tmp/esp-sr/model/pack_model.py \
             -m "$MODEL_ROOT" \
             -o srmodels.bin
@@ -50,11 +45,8 @@ jobs:
           grep -a -q "wn9_hiesp" "$MODEL_BIN"
           SIZE=$(stat -c %s "$MODEL_BIN")
           test "$SIZE" -le $((0x400000))
-
           echo "ESP-SR version: $ESP_SR_VERSION"
-          echo "Model source: $MODEL_SRC"
-          echo "Model image: $MODEL_BIN"
-          echo "Model size: $SIZE bytes"
+          echo "ESP-SR model size: $SIZE bytes"
           sha256sum "$MODEL_BIN"
           echo "ESP-SR WakeNet9 Hi ESP model: PASS"
 
@@ -107,39 +99,11 @@ jobs:
           set -euo pipefail
           REAL_PYTHON="$(command -v python)"
           mkdir -p "$PWD/ci-bin"
-          cat > "$PWD/ci-bin/python" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-REAL_PYTHON="$REAL_PYTHON"
-MODEL_SOURCE="$GITHUB_WORKSPACE/model-artifact/srmodels.bin"
-
-# ESP-SR's CMakeLists.txt invokes: python .../model/movemodel.py -d1 ... -d2 ... -d3 <build>
-# The model is already built by the separate model job with Espressif's official pack_model.py.
-# Intercept only that packaging call; all other Python invocations are delegated unchanged.
-if [ "\${1:-}" = "${PWD}/.pio/build/esp32-s3-devkitc-1/managed_components/espressif__esp-sr/model/movemodel.py" ] || [[ "\${1:-}" == */esp-sr/model/movemodel.py ]]; then
-  BUILD_DIR=""
-  prev=""
-  for arg in "\$@"; do
-    if [ "\$prev" = "-d3" ]; then BUILD_DIR="\$arg"; fi
-    prev="\$arg"
-  done
-  test -n "\$BUILD_DIR"
-  test -s "\$MODEL_SOURCE"
-  mkdir -p "\$BUILD_DIR/srmodels"
-  cp "\$MODEL_SOURCE" "\$BUILD_DIR/srmodels/srmodels.bin"
-  test -s "\$BUILD_DIR/srmodels/srmodels.bin"
-  echo "ESP-SR CMake model target: using prebuilt official srmodels.bin"
-  sha256sum "\$BUILD_DIR/srmodels/srmodels.bin"
-  exit 0
-fi
-
-exec "\$REAL_PYTHON" "\$@"
-EOF
+          cp scripts/esp_sr_python_wrapper.sh "$PWD/ci-bin/python"
           chmod +x "$PWD/ci-bin/python"
-          export PATH="$PWD/ci-bin:$PATH"
-          echo "PATH=$PATH" >> "$GITHUB_ENV"
-          echo "ESP-SR model wrapper installed"
-          cat "$PWD/ci-bin/python"
+          echo "REAL_PYTHON=$REAL_PYTHON" >> "$GITHUB_ENV"
+          echo "PATH=$PWD/ci-bin:$PATH" >> "$GITHUB_ENV"
+          echo "ESP-SR wrapper installed"
 
       - name: Build ESP32-S3
         run: pio run
