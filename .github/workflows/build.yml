@@ -70,6 +70,7 @@ jobs:
       # ============================================================
       - name: Verify Firmware and ESP-SR Model
         run: |
+          set -euo pipefail
           BUILD=.pio/build/esp32-s3-devkitc-1
           test -f "$BUILD/firmware.bin"
           test -f "$BUILD/bootloader.bin"
@@ -79,8 +80,46 @@ jobs:
           test -f "$BUILD/srmodels/srmodels.bin"
           ls -lh "$BUILD/srmodels/srmodels.bin"
 
-          echo "ESP-SR model image:" 
+          echo "ESP-SR model image:"
           du -h "$BUILD/srmodels/srmodels.bin"
+
+      # ============================================================
+      # VERIFY FINAL SDKCONFIG + EMBEDDED CA BUNDLE
+      # ============================================================
+      - name: Audit final sdkconfig and CA bundle
+        run: |
+          set -euo pipefail
+          BUILD=.pio/build/esp32-s3-devkitc-1
+
+          # PlatformIO/ESP-IDF normally keeps the generated sdkconfig here.
+          SDKCONFIG="$BUILD/config/sdkconfig"
+          if [ ! -f "$SDKCONFIG" ]; then
+            SDKCONFIG="$BUILD/sdkconfig"
+          fi
+          test -f "$SDKCONFIG"
+
+          echo "Using final sdkconfig: $SDKCONFIG"
+          grep -E '^(CONFIG_MBEDTLS_CERTIFICATE_BUNDLE|CONFIG_MBEDTLS_DEFAULT_CERTIFICATE_BUNDLE|CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL|CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY|CONFIG_SR_WN_WN9_HIESP)=' "$SDKCONFIG"
+
+          test "$(grep -E '^CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y$' "$SDKCONFIG" | wc -l)" -eq 1
+          test "$(grep -E '^CONFIG_MBEDTLS_DEFAULT_CERTIFICATE_BUNDLE=y$' "$SDKCONFIG" | wc -l)" -eq 1
+          test "$(grep -E '^CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y$' "$SDKCONFIG" | wc -l)" -eq 1
+          test "$(grep -E '^CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y$' "$SDKCONFIG" | wc -l)" -eq 1
+          test "$(grep -E '^CONFIG_SR_WN_WN9_HIESP=y$' "$SDKCONFIG" | wc -l)" -eq 1
+
+          # Confirm the final ELF actually contains the ESP-IDF embedded
+          # certificate-bundle symbols, not merely the Kconfig settings.
+          ELF="$BUILD/firmware.elf"
+          test -f "$ELF"
+          command -v xtensa-esp-elf-nm >/dev/null
+          xtensa-esp-elf-nm -a "$ELF" | grep -E '_binary_x509_crt_bundle_(start|end)' 
+
+          test "$(xtensa-esp-elf-nm -a "$ELF" | grep -c '_binary_x509_crt_bundle_start')" -ge 1
+          test "$(xtensa-esp-elf-nm -a "$ELF" | grep -c '_binary_x509_crt_bundle_end')" -ge 1
+
+          echo "CA bundle audit: PASS"
+          echo "WakeNet9 Hi ESP config: PASS"
+          echo "Final firmware contains embedded x509 certificate bundle symbols: PASS"
 
       # ============================================================
       # ARTIFACTS
@@ -94,4 +133,5 @@ jobs:
             .pio/build/esp32-s3-devkitc-1/firmware.bin
             .pio/build/esp32-s3-devkitc-1/bootloader.bin
             .pio/build/esp32-s3-devkitc-1/partitions.bin
+            .pio/build/esp32-s3-devkitc-1/firmware.elf
             .pio/build/esp32-s3-devkitc-1/srmodels/srmodels.bin
