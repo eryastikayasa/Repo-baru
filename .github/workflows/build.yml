@@ -54,17 +54,22 @@ jobs:
           BUILD=.pio/build/esp32-s3-devkitc-1
           test -d "$BUILD"
 
-          SDKCONFIG="$(find . -maxdepth 1 -type f -name 'sdkconfig.*' ! -name 'sdkconfig.defaults' -print -quit)"
+          if [ -f sdkconfig ]; then
+            SDKCONFIG=sdkconfig
+          else
+            SDKCONFIG="$(find . -maxdepth 1 -type f -name 'sdkconfig.*' ! -name 'sdkconfig.defaults' -print -quit)"
+          fi
           test -n "$SDKCONFIG"
+          test -f "$SDKCONFIG"
           echo "Final sdkconfig: $SDKCONFIG"
 
           echo "--- Flash configuration ---"
           grep -E '^CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y$' "$SDKCONFIG"
-          grep -E '^CONFIG_ESPTOOLPY_FLASHSIZE="16MB"$' "$SDKCONFIG"
+          grep -E '^CONFIG_ESPTOOLPY_FLASHSIZE=\"16MB\"$' "$SDKCONFIG"
 
           echo "--- Custom partition configuration ---"
           grep -E '^CONFIG_PARTITION_TABLE_CUSTOM=y$' "$SDKCONFIG"
-          grep -E '^CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/partitions.csv"$' "$SDKCONFIG"
+          grep -E '^CONFIG_PARTITION_TABLE_CUSTOM_FILENAME=\"partitions/partitions.csv\"$' "$SDKCONFIG"
 
           echo "--- WakeNet configuration ---"
           grep -E '^CONFIG_SR_WN_WN9_HIESP=y$' "$SDKCONFIG"
@@ -86,26 +91,39 @@ jobs:
           set -euo pipefail
           BUILD=.pio/build/esp32-s3-devkitc-1
 
-          # ESP-SR 2.4.1 natively generates this from its CMake target.
-          MODEL_BIN="$(find "$BUILD" -type f -name 'srmodels.bin' -print -quit || true)"
+          # ESP-SR 2.4.1 creates this through its CMake target when the
+          # project is built/flashed with ESP-IDF. PlatformIO may not invoke
+          # the flash target, so first look for the native output.
+          MODEL_BIN="$(find "$BUILD" -type f -path '*/srmodels/srmodels.bin' -print -quit || true)"
 
-          # PlatformIO can build the component successfully while its flash
-          # target is not invoked. In that case run the SAME official ESP-SR
-          # packer manually, using the final sdkconfig and the managed ESP-SR
-          # component. This does not create a custom model format.
           if [ -z "$MODEL_BIN" ]; then
-            SDKCONFIG="$(find . -maxdepth 1 -type f -name 'sdkconfig.*' ! -name 'sdkconfig.defaults' -print -quit)"
-            ESP_SR_MOVEMODEL="$(find .pio -type f -path '*/esp-sr/model/movemodel.py' -print -quit || true)"
+            if [ -f sdkconfig ]; then
+              SDKCONFIG=sdkconfig
+            else
+              SDKCONFIG="$(find . -maxdepth 1 -type f -name 'sdkconfig.*' ! -name 'sdkconfig.defaults' -print -quit)"
+            fi
+            test -f "$SDKCONFIG"
 
+            # PlatformIO/ESP-IDF component-manager locations vary. Discover
+            # the official ESP-SR model packer instead of assuming a .pio path.
+            ESP_SR_MOVEMODEL="$(find .pio "$HOME/.platformio" -type f -path '*/esp-sr/model/movemodel.py' -print -quit 2>/dev/null || true)"
             if [ -z "$ESP_SR_MOVEMODEL" ]; then
-              ESP_SR_MOVEMODEL="$(find .pio -type f -path '*/espressif__esp-sr/model/movemodel.py' -print -quit || true)"
+              ESP_SR_MOVEMODEL="$(find .pio "$HOME/.platformio" -type f -name 'movemodel.py' -print -quit 2>/dev/null || true)"
             fi
 
             test -n "$ESP_SR_MOVEMODEL"
+            test -f "$ESP_SR_MOVEMODEL"
+
+            # movemodel.py lives at <esp-sr-component>/model/movemodel.py.
             ESP_SR_DIR="$(dirname "$(dirname "$ESP_SR_MOVEMODEL")")"
-            echo "Using ESP-SR model packer: $ESP_SR_MOVEMODEL"
+            test -f "$ESP_SR_DIR/model/movemodel.py"
+            test -d "$ESP_SR_DIR/model/wakenet_model"
+
+            echo "Using final sdkconfig: $SDKCONFIG"
+            echo "Using official ESP-SR model packer: $ESP_SR_MOVEMODEL"
             echo "Using ESP-SR component: $ESP_SR_DIR"
 
+            # This is the same command used by ESP-SR's CMakeLists.txt.
             python "$ESP_SR_MOVEMODEL" \
               -d1 "$SDKCONFIG" \
               -d2 "$ESP_SR_DIR" \
@@ -125,7 +143,7 @@ jobs:
           test "$MODEL_SIZE" -gt 0
           test "$MODEL_SIZE" -le $((0x100000))
 
-          # The packer should also leave the selected model directory.
+          # The packer should leave the selected WakeNet model directory.
           test -d "$BUILD/srmodels/wn9_hiesp"
           test -f "$BUILD/srmodels/wn9_hiesp/wn9_index"
 
@@ -139,7 +157,11 @@ jobs:
         run: |
           set -euo pipefail
           BUILD=.pio/build/esp32-s3-devkitc-1
-          SDKCONFIG="$(find . -maxdepth 1 -type f -name 'sdkconfig.*' ! -name 'sdkconfig.defaults' -print -quit)"
+          if [ -f sdkconfig ]; then
+            SDKCONFIG=sdkconfig
+          else
+            SDKCONFIG="$(find . -maxdepth 1 -type f -name 'sdkconfig.*' ! -name 'sdkconfig.defaults' -print -quit)"
+          fi
           ELF="$BUILD/firmware.elf"
 
           echo "--- CA bundle configuration in final sdkconfig ---"
