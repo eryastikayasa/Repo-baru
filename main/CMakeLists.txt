@@ -9,22 +9,9 @@ idf_component_register(
         esp-sr
 )
 
-# Force the existing WakeNet lookup in main.cpp to load the model list
-# from the SPIFFS "model" partition first.
-target_compile_options(${COMPONENT_LIB} PRIVATE
-    "-include${CMAKE_CURRENT_LIST_DIR}/wake_model_autoload.h"
-)
-
-# ESP-SR 2.4.1 contains the selected model in the managed component.
-# Package only wn9_hiesp into the model partition and flash it with the app.
-set(SR_MODEL_SOURCE
-    "${CMAKE_CURRENT_LIST_DIR}/../managed_components/espressif__esp-sr/model/target/wn9_hiesp"
-)
-
-if(NOT EXISTS "${SR_MODEL_SOURCE}/wn9_index")
-    message(FATAL_ERROR
-        "ESP-SR WakeNet9 Hi ESP model files not found: ${SR_MODEL_SOURCE}/wn9_index"
-    )
-endif()
-
-spiffs_create_partition_image(model "${SR_MODEL_SOURCE}" FLASH_IN_PROJECT)
+# ESP-SR 2.4.1 owns the model packaging flow.
+# With CONFIG_PARTITION_TABLE_CUSTOM=y and a partition named "model",
+# its CMakeLists.txt generates build/srmodels/srmodels.bin from
+# CONFIG_SR_WN_WN9_HIESP and attaches it to the model partition.
+# Do not manually package wn9_hiesp here; that would bypass the
+# ESP-SR model packer and is incompatible with its srmodels format.
