@@ -117,7 +117,7 @@ jobs:
             cp -a "$MODEL_SRC" "$BUILD/srmodels/wn9_hiesp"
             python -u "$ESP_SR_DIR/model/pack_model.py" \
               -m "$BUILD/srmodels" \
-              -o srmodels.bin
+              -o "$BUILD/srmodels/srmodels.bin"
           fi
 
           test -s "$MODEL"
