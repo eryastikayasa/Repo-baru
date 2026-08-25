@@ -44,7 +44,7 @@ jobs:
       - name: Build ESP32-S3
         run: pio run
 
-      - name: Generate ESP-SR srmodels.bin with official pack_model.py
+      - name: Generate ESP-SR srmodels.bin with repository pack_model.py
         env:
           PYTHONUNBUFFERED: "1"
         run: |
@@ -68,7 +68,9 @@ jobs:
           test -n "$ESP_SR_DIR"
           test -d "$ESP_SR_DIR"
 
-          PACKER="$ESP_SR_DIR/model/pack_model.py"
+          # The component-registry package may omit the Python model tools.
+          # Use the exact ESP-SR packer committed in this repository.
+          PACKER="$PWD/scripts/pack_model.py"
           test -f "$PACKER"
 
           MODEL_SRC="$ESP_SR_DIR/model/wakenet_model/wn9_hiesp"
@@ -79,13 +81,15 @@ jobs:
           echo "=== ESP-SR MODEL DIAGNOSTIC ==="
           echo "Final sdkconfig: $SDKCONFIG"
           echo "Exact managed ESP-SR component: $ESP_SR_DIR"
-          echo "Official packer: $PACKER"
+          echo "Repository packer: $PACKER"
           echo "Python: $(python --version)"
           echo "ESP-SR model source: $MODEL_SRC"
           grep -E '^CONFIG_IDF_TARGET=' "$SDKCONFIG" || true
           grep -E '^CONFIG_SR_WN_WN9_HIESP=y$' "$SDKCONFIG"
           echo "--- source model files ---"
           ls -lah "$MODEL_SRC"
+          echo "--- packer syntax check ---"
+          python -m py_compile "$PACKER"
 
           # Build-system-compatible output directory.
           mkdir -p "$BUILD/srmodels"
@@ -94,10 +98,10 @@ jobs:
           cp -a "$MODEL_SRC" "$BUILD/srmodels/wn9_hiesp"
 
           MODEL="$BUILD/srmodels/srmodels.bin"
-          echo "=== RUN OFFICIAL PACK_MODEL.PY ==="
+          echo "=== RUN ESP-SR pack_model.py ==="
           python -u "$PACKER" \
             -m "$BUILD/srmodels" \
-            -o "$BUILD/srmodels/srmodels.bin"
+            -o "$MODEL"
 
           echo "--- generated srmodels tree ---"
           find "$BUILD/srmodels" -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
@@ -110,7 +114,7 @@ jobs:
           grep -a -q "wn9_hiesp" "$MODEL"
           echo "ESP-SR model image: $MODEL"
           echo "ESP-SR model size: $MODEL_SIZE bytes"
-          echo "Official ESP-SR pack_model.py: PASS"
+          echo "ESP-SR pack_model.py: PASS"
           echo "WakeNet9 Hi ESP model files: PASS"
 
       - name: Audit final sdkconfig, 16MB flash and WakeNet9
@@ -140,7 +144,7 @@ jobs:
           echo "Flash size: 16MB PASS"
           echo "Custom partition table: PASS"
           echo "WakeNet9 Hi ESP config: PASS"
-          echo "Official ESP-SR model generation: PASS"
+          echo "ESP-SR model generation: PASS"
           echo "WakeNet9 model payload: PASS"
           echo "Model partition capacity (4MiB): PASS"
 
@@ -176,7 +180,7 @@ jobs:
           echo "COMPATIBILITY GATE: PASS"
           echo "ESP32-S3 + 16MB Flash + 8MB OPI PSRAM"
           echo "ESP-IDF 6.0.1 + ESP-SR 2.4.5"
-          echo "WakeNet9 Hi ESP + official ESP-SR model tools"
+          echo "WakeNet9 Hi ESP + ESP-SR model tools"
           echo "CA bundle + embedded TLS trust store"
           echo "Model partition: 4MiB"
           echo "========================================"
