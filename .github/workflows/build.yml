@@ -47,8 +47,9 @@ jobs:
           printf '#pragma once\n#define GEMINI_API_KEY "%s"\n' "$GEMINI_API_KEY" > components/websocket/include/gemini_api_key.h
           test -s components/websocket/include/gemini_api_key.h
 
-          
-          pio run -t clean
+      - name: Clean build
+        
+        pio run -t clean
 
       - name: Build ESP32-S3
         run: pio run
