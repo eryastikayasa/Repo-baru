@@ -45,12 +45,16 @@ jobs:
         run: pio run
 
       - name: Generate ESP-SR srmodels.bin with official movemodel.py
+        env:
+          PYTHONUNBUFFERED: "1"
         run: |
           set -euo pipefail
+          set -x
+
           BUILD="$PWD/.pio/build/esp32-s3-devkitc-1"
           test -d "$BUILD"
 
-          if [ -f sdkconfig ]; then
+          if [ -f "$PWD/sdkconfig" ]; then
             SDKCONFIG="$PWD/sdkconfig"
           else
             SDKCONFIG="$(find "$PWD" -maxdepth 1 -type f -name 'sdkconfig.*' ! -name 'sdkconfig.defaults' -print -quit)"
@@ -63,23 +67,65 @@ jobs:
           fi
           test -n "$ESP_SR_DIR"
           test -f "$ESP_SR_DIR/model/movemodel.py"
+          test -f "$ESP_SR_DIR/model/pack_model.py"
 
+          MODEL_SRC="$ESP_SR_DIR/model/wakenet_model/wn9_hiesp"
+          test -d "$MODEL_SRC"
+          test -s "$MODEL_SRC/wn9_index"
+          test -s "$MODEL_SRC/wn9_data"
+
+          echo "=== ESP-SR MODEL DIAGNOSTIC ==="
           echo "Final sdkconfig: $SDKCONFIG"
           echo "Exact managed ESP-SR component: $ESP_SR_DIR"
           echo "Python: $(python --version)"
-          echo "Generating model with Espressif's official movemodel.py"
+          echo "ESP-SR model source: $MODEL_SRC"
+          grep -E '^CONFIG_IDF_TARGET=' "$SDKCONFIG" || true
+          grep -E '^CONFIG_SR_WN_WN9_HIESP=y$' "$SDKCONFIG"
+          echo "--- source model files ---"
+          ls -lah "$MODEL_SRC"
+          echo "--- movemodel help ---"
+          python -u "$ESP_SR_DIR/model/movemodel.py" --help
 
+          MODEL="$BUILD/srmodels/srmodels.bin"
+          echo "=== RUN OFFICIAL MOVEMODEL.PY ==="
+          set +e
           python -u "$ESP_SR_DIR/model/movemodel.py" \
             -d1 "$SDKCONFIG" \
             -d2 "$ESP_SR_DIR" \
             -d3 "$BUILD"
+          MOVEMODEL_RC=$?
+          set -e
+          echo "movemodel.py exit code: $MOVEMODEL_RC"
 
-          MODEL="$BUILD/srmodels/srmodels.bin"
+          echo "--- generated srmodels tree ---"
+          if [ -d "$BUILD/srmodels" ]; then
+            find "$BUILD/srmodels" -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
+          else
+            echo "srmodels directory was not generated"
+          fi
+
+          # ESP-SR's official movemodel.py normally performs this exact copy + pack.
+          # If the managed script exits without producing the selected model, use the
+          # same component's official pack_model.py as a deterministic fallback.
+          if [ "$MOVEMODEL_RC" -ne 0 ] || \
+             [ ! -s "$MODEL" ] || \
+             [ ! -s "$BUILD/srmodels/wn9_hiesp/wn9_index" ] || \
+             [ ! -s "$BUILD/srmodels/wn9_hiesp/wn9_data" ]; then
+            echo "=== MOVEMODEL DID NOT PRODUCE wn9_hiesp; OFFICIAL PACK FALLBACK ==="
+            rm -rf "$BUILD/srmodels"
+            mkdir -p "$BUILD/srmodels"
+            cp -a "$MODEL_SRC" "$BUILD/srmodels/wn9_hiesp"
+            python -u "$ESP_SR_DIR/model/pack_model.py" \
+              -m "$BUILD/srmodels" \
+              -o srmodels.bin
+          fi
+
           test -s "$MODEL"
-          test -f "$BUILD/srmodels/wn9_hiesp/wn9_index"
-          test -f "$BUILD/srmodels/wn9_hiesp/wn9_data"
+          test -s "$BUILD/srmodels/wn9_hiesp/wn9_index"
+          test -s "$BUILD/srmodels/wn9_hiesp/wn9_data"
           MODEL_SIZE=$(stat -c %s "$MODEL")
           test "$MODEL_SIZE" -le $((0x400000))
+          grep -a -q "wn9_hiesp" "$MODEL"
           echo "ESP-SR model image: $MODEL"
           echo "ESP-SR model size: $MODEL_SIZE bytes"
           echo "WakeNet9 Hi ESP model files: PASS"
@@ -103,15 +149,15 @@ jobs:
           test -f "$BUILD/partitions.bin"
           test -f "$BUILD/firmware.elf"
           test -s "$BUILD/srmodels/srmodels.bin"
-          test -f "$BUILD/srmodels/wn9_hiesp/wn9_index"
-          test -f "$BUILD/srmodels/wn9_hiesp/wn9_data"
+          test -s "$BUILD/srmodels/wn9_hiesp/wn9_index"
+          test -s "$BUILD/srmodels/wn9_hiesp/wn9_data"
           grep -a -q "wn9_hiesp" "$BUILD/srmodels/srmodels.bin"
           MODEL_SIZE=$(stat -c %s "$BUILD/srmodels/srmodels.bin")
           test "$MODEL_SIZE" -le $((0x400000))
           echo "Flash size: 16MB PASS"
           echo "Custom partition table: PASS"
           echo "WakeNet9 Hi ESP config: PASS"
-          echo "Official ESP-SR movemodel.py: PASS"
+          echo "Official ESP-SR model generation: PASS"
           echo "WakeNet9 model payload: PASS"
           echo "Model partition capacity (4MiB): PASS"
 
@@ -141,13 +187,13 @@ jobs:
           test -f "$BUILD/partitions.bin"
           test -f "$BUILD/firmware.elf"
           test -s "$BUILD/srmodels/srmodels.bin"
-          test -f "$BUILD/srmodels/wn9_hiesp/wn9_index"
-          test -f "$BUILD/srmodels/wn9_hiesp/wn9_data"
+          test -s "$BUILD/srmodels/wn9_hiesp/wn9_index"
+          test -s "$BUILD/srmodels/wn9_hiesp/wn9_data"
           echo "========================================"
           echo "COMPATIBILITY GATE: PASS"
           echo "ESP32-S3 + 16MB Flash + 8MB OPI PSRAM"
           echo "ESP-IDF 6.0.1 + ESP-SR 2.4.5"
-          echo "WakeNet9 Hi ESP + official movemodel.py"
+          echo "WakeNet9 Hi ESP + official ESP-SR model tools"
           echo "CA bundle + embedded TLS trust store"
           echo "Model partition: 4MiB"
           echo "========================================"
