@@ -89,7 +89,7 @@ static bool wakeword_init(void)
 
     // BASELINE ONLY: read the model's actual default detection threshold.
     // Do not change the threshold yet; this is for measurement before tuning.
-    float current_threshold = wake_iface->get_det_threshold(wake_model);
+    float current_threshold = wake_iface->get_det_threshold(wake_model,1);
     ESP_LOGI(TAG, "WakeNet detection threshold (default): %.4f", current_threshold);
 
     wake_chunk_samples = wake_iface->get_samp_chunksize(wake_model);
