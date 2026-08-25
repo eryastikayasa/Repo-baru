@@ -11,6 +11,7 @@
 #include "esp_heap_caps.h"
 #include "esp_wn_iface.h"
 #include "esp_wn_models.h"
+#include "model_path.h"
 #include "driver/gpio.h"
 
 #include "freertos/FreeRTOS.h"
@@ -35,8 +36,12 @@ static const char *TAG = "MAIN";
 
 // ============================================================
 // WAKE WORD - ESP-SR WakeNet9 "Hi, ESP"
+// Model is loaded from the ESP-SR "model" partition.
+// ESP-SR's CMake generates build/srmodels/srmodels.bin from
+// CONFIG_SR_WN_WN9_HIESP and flashes it to that partition.
 // ============================================================
 
+static srmodel_list_t *sr_models = nullptr;
 static const esp_wn_iface_t *wake_iface = nullptr;
 static model_iface_data_t *wake_model = nullptr;
 static int wake_chunk_samples = 0;
@@ -46,10 +51,30 @@ static bool wakeword_init(void)
     ESP_LOGI(TAG, "========================================");
     ESP_LOGI(TAG, "ESP-SR WAKE WORD INIT");
     ESP_LOGI(TAG, "Model: %s", WAKE_MODEL_NAME);
+    ESP_LOGI(TAG, "Loading ESP-SR models from partition: model");
+
+    // IMPORTANT: esp_wn_handle_from_name() must be called only after
+    // esp_srmodel_init() has loaded the model list from flash.
+    sr_models = esp_srmodel_init("model");
+    if (!sr_models) {
+        ESP_LOGE(TAG, "ESP-SR model loader gagal: partition 'model' tidak tersedia atau model image tidak valid");
+        return false;
+    }
+
+    ESP_LOGI(TAG, "ESP-SR models loaded: count=%d", sr_models->num);
+
+    if (esp_srmodel_exists(sr_models, (char *)WAKE_MODEL_NAME) < 0) {
+        ESP_LOGE(TAG, "WakeNet model tidak ditemukan di srmodels.bin: %s", WAKE_MODEL_NAME);
+        esp_srmodel_deinit(sr_models);
+        sr_models = nullptr;
+        return false;
+    }
 
     wake_iface = esp_wn_handle_from_name(WAKE_MODEL_NAME);
     if (!wake_iface) {
         ESP_LOGE(TAG, "WakeNet handle tidak ditemukan: %s", WAKE_MODEL_NAME);
+        esp_srmodel_deinit(sr_models);
+        sr_models = nullptr;
         return false;
     }
 
@@ -57,6 +82,8 @@ static bool wakeword_init(void)
     if (!wake_model) {
         ESP_LOGE(TAG, "Gagal membuat WakeNet model: %s", WAKE_MODEL_NAME);
         wake_iface = nullptr;
+        esp_srmodel_deinit(sr_models);
+        sr_models = nullptr;
         return false;
     }
 
@@ -73,6 +100,8 @@ static bool wakeword_init(void)
         wake_model = nullptr;
         wake_iface = nullptr;
         wake_chunk_samples = 0;
+        esp_srmodel_deinit(sr_models);
+        sr_models = nullptr;
         return false;
     }
 
@@ -89,6 +118,11 @@ static void wakeword_deinit(void)
     wake_model = nullptr;
     wake_iface = nullptr;
     wake_chunk_samples = 0;
+
+    if (sr_models) {
+        esp_srmodel_deinit(sr_models);
+        sr_models = nullptr;
+    }
 }
 
 // ============================================================
@@ -296,9 +330,13 @@ static void audio_task(void *arg)
 
         if (!assistant_active) {
             // ========== MODE IDLE: tunggu "Hi, ESP" ==========
-            if (wake_iface && wake_model && wake_chunk_samples > 0 &&
-                bytes_read == (size_t)wake_chunk_samples * sizeof(int16_t)) {
-                int16_t *wake_pcm = reinterpret_cast<int16_t *>(audio_buffer + buffer_pos - bytes_read);
+            // Feed WakeNet only complete model chunks. If the audio HAL
+            // returns smaller/larger reads, accumulate them until a full
+            // chunk is available instead of silently dropping samples.
+            while (wake_iface && wake_model && wake_chunk_samples > 0 &&
+                   buffer_pos >= (size_t)wake_chunk_samples * sizeof(int16_t)) {
+                size_t wake_bytes = (size_t)wake_chunk_samples * sizeof(int16_t);
+                int16_t *wake_pcm = reinterpret_cast<int16_t *>(audio_buffer);
                 int wake_result = wake_iface->detect(wake_model, wake_pcm);
 
                 if (wake_result > 0) {
@@ -311,6 +349,10 @@ static void audio_task(void *arg)
                     vTaskDelay(pdMS_TO_TICKS(10));
                     continue;
                 }
+
+                size_t remainder = buffer_pos - wake_bytes;
+                if (remainder > 0) memmove(audio_buffer, audio_buffer + wake_bytes, remainder);
+                buffer_pos = remainder;
             }
 
             // Tombol BOOT tetap dipertahankan sebagai fallback manual.
@@ -328,14 +370,6 @@ static void audio_task(void *arg)
                 }
             }
 
-            // WakeNet memakai chunk 512 sample = 1024 byte.
-            // Buang buffer idle agar tidak menumpuk.
-            if (buffer_pos >= 1024) {
-                size_t remainder = buffer_pos - 1024;
-                if (remainder > 0)
-                    memmove(audio_buffer, audio_buffer + 1024, remainder);
-                buffer_pos = remainder;
-            }
             vTaskDelay(pdMS_TO_TICKS(2));
             continue;
         }
