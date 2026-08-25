@@ -9,7 +9,9 @@
 #include "esp_wifi.h"
 #include "esp_psram.h"
 #include "esp_heap_caps.h"
-#include "driver/gpio.h"      // <-- tambahan untuk tombol boot
+#include "esp_wn_iface.h"
+#include "esp_wn_models.h"
+#include "driver/gpio.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -29,6 +31,65 @@
 
 static const char *TAG = "MAIN";
 #define BOOT_BUTTON_GPIO GPIO_NUM_0
+#define WAKE_MODEL_NAME "wn9_hiesp"
+
+// ============================================================
+// WAKE WORD - ESP-SR WakeNet9 "Hi, ESP"
+// ============================================================
+
+static const esp_wn_iface_t *wake_iface = nullptr;
+static model_iface_data_t *wake_model = nullptr;
+static int wake_chunk_samples = 0;
+
+static bool wakeword_init(void)
+{
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "ESP-SR WAKE WORD INIT");
+    ESP_LOGI(TAG, "Model: %s", WAKE_MODEL_NAME);
+
+    wake_iface = esp_wn_handle_from_name(WAKE_MODEL_NAME);
+    if (!wake_iface) {
+        ESP_LOGE(TAG, "WakeNet handle tidak ditemukan: %s", WAKE_MODEL_NAME);
+        return false;
+    }
+
+    wake_model = wake_iface->create(WAKE_MODEL_NAME, DET_MODE_90);
+    if (!wake_model) {
+        ESP_LOGE(TAG, "Gagal membuat WakeNet model: %s", WAKE_MODEL_NAME);
+        wake_iface = nullptr;
+        return false;
+    }
+
+    wake_chunk_samples = wake_iface->get_samp_chunksize(wake_model);
+    int wake_rate = wake_iface->get_samp_rate(wake_model);
+    int wake_channels = wake_iface->get_channel_num(wake_model);
+
+    ESP_LOGI(TAG, "WakeNet ready: rate=%d Hz chunk=%d samples channels=%d",
+             wake_rate, wake_chunk_samples, wake_channels);
+
+    if (wake_rate != MIC_SAMPLE_RATE || wake_channels != 1) {
+        ESP_LOGE(TAG, "WakeNet audio mismatch: expected %d Hz mono", MIC_SAMPLE_RATE);
+        wake_iface->destroy(wake_model);
+        wake_model = nullptr;
+        wake_iface = nullptr;
+        wake_chunk_samples = 0;
+        return false;
+    }
+
+    ESP_LOGI(TAG, "Wake word aktif: HI, ESP");
+    ESP_LOGI(TAG, "========================================");
+    return true;
+}
+
+static void wakeword_deinit(void)
+{
+    if (wake_iface && wake_model) {
+        wake_iface->destroy(wake_model);
+    }
+    wake_model = nullptr;
+    wake_iface = nullptr;
+    wake_chunk_samples = 0;
+}
 
 // ============================================================
 // NETWORK DEBUG
@@ -196,7 +257,7 @@ static bool mic_frame_has_activity(const uint8_t *data, size_t len)
 {
     if (!data || len < 2) return false;
 
-    constexpr int32_t SILENCE_THRESHOLD = 200;   // sensitif
+    constexpr int32_t SILENCE_THRESHOLD = 200;
     constexpr size_t MIN_ACTIVE_SAMPLES = 8;
     size_t active_samples = 0;
 
@@ -212,7 +273,7 @@ static bool mic_frame_has_activity(const uint8_t *data, size_t len)
 }
 
 // ============================================================
-// AUDIO TASK: IDLE + ACTIVE MODE
+// AUDIO TASK: WAKE WORD + ACTIVE MODE
 // ============================================================
 
 static bool assistant_active = false;
@@ -228,38 +289,58 @@ static void audio_task(void *arg)
     int64_t last_silent_log_us = 0;
 
     while (1) {
-        // Selalu baca mic supaya buffer tetap terisi
+        // audio_read_mic() returns PCM16 mono at 16 kHz.
         size_t bytes_read = audio_read_mic(audio_buffer + buffer_pos,
                                            sizeof(audio_buffer) - buffer_pos);
         if (bytes_read > 0) buffer_pos += bytes_read;
 
         if (!assistant_active) {
-            // ========== MODE IDLE: tunggu tombol boot ==========
+            // ========== MODE IDLE: tunggu "Hi, ESP" ==========
+            if (wake_iface && wake_model && wake_chunk_samples > 0 &&
+                bytes_read == (size_t)wake_chunk_samples * sizeof(int16_t)) {
+                int16_t *wake_pcm = reinterpret_cast<int16_t *>(audio_buffer + buffer_pos - bytes_read);
+                int wake_result = wake_iface->detect(wake_model, wake_pcm);
+
+                if (wake_result > 0) {
+                    ESP_LOGW(TAG, ">>> WAKE WORD TERDETEKSI: HI, ESP (id=%d)", wake_result);
+                    assistant_active = true;
+                    connect_start_us = esp_timer_get_time();
+                    last_user_activity_us = connect_start_us;
+                    websocket_app_start();
+                    buffer_pos = 0;
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                    continue;
+                }
+            }
+
+            // Tombol BOOT tetap dipertahankan sebagai fallback manual.
             if (gpio_get_level(BOOT_BUTTON_GPIO) == 0) {
-                vTaskDelay(pdMS_TO_TICKS(50)); // debounce
+                vTaskDelay(pdMS_TO_TICKS(50));
                 if (gpio_get_level(BOOT_BUTTON_GPIO) == 0) {
-                    // Tunggu sampai tombol dilepas
                     while (gpio_get_level(BOOT_BUTTON_GPIO) == 0) {
                         vTaskDelay(pdMS_TO_TICKS(10));
                     }
                     ESP_LOGI(TAG, "Tombol ditekan! Memulai sesi...");
                     assistant_active = true;
                     connect_start_us = esp_timer_get_time();
+                    last_user_activity_us = connect_start_us;
                     websocket_app_start();
                 }
             }
 
-            // Bersihkan buffer mic selama idle
-            size_t remainder = buffer_pos >= 3200 ? buffer_pos - 3200 : buffer_pos;
-            if (remainder > 0 && buffer_pos >= 3200)
-                memmove(audio_buffer, audio_buffer + 3200, remainder);
-            buffer_pos = remainder;
-            vTaskDelay(pdMS_TO_TICKS(50));
+            // WakeNet memakai chunk 512 sample = 1024 byte.
+            // Buang buffer idle agar tidak menumpuk.
+            if (buffer_pos >= 1024) {
+                size_t remainder = buffer_pos - 1024;
+                if (remainder > 0)
+                    memmove(audio_buffer, audio_buffer + 1024, remainder);
+                buffer_pos = remainder;
+            }
+            vTaskDelay(pdMS_TO_TICKS(2));
             continue;
         }
 
         // ========== MODE AKTIF ==========
-        // Jika belum terhubung, tunggu maksimal 15 detik
         if (!websocket_is_connected()) {
             if (esp_timer_get_time() - connect_start_us > 15 * 1000000LL) {
                 ESP_LOGW(TAG, "Koneksi gagal. Kembali ke mode idle.");
@@ -267,7 +348,6 @@ static void audio_task(void *arg)
                 buffer_pos = 0;
                 continue;
             }
-            // Bersihkan buffer dan tunggu
             buffer_pos = 0;
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
@@ -280,7 +360,6 @@ static void audio_task(void *arg)
                 last_user_activity_us = esp_timer_get_time();
             }
 
-            // Idle 60 detik -> tutup koneksi
             int64_t now_us = esp_timer_get_time();
             if (now_us - last_user_activity_us > 60 * 1000000LL) {
                 ESP_LOGI(TAG, "Idle 60 detik, menutup sesi.");
@@ -290,7 +369,6 @@ static void audio_task(void *arg)
                 continue;
             }
 
-            // Kirim audio hanya jika Gemini tidak bicara
             if (!audio_turn_active) {
                 if (has_activity) {
                     websocket_send_audio_data(audio_buffer, 3200);
@@ -305,7 +383,6 @@ static void audio_task(void *arg)
                 }
             }
 
-            // Reset buffer dengan remainder
             size_t remainder = buffer_pos - 3200;
             if (remainder > 0) memmove(audio_buffer, audio_buffer + 3200, remainder);
             buffer_pos = remainder;
@@ -319,7 +396,7 @@ static void audio_task(void *arg)
 // APP MAIN
 // ============================================================
 
-extern "C" void app_main(void)
+extern "C" void app_main()
 {
     ESP_LOGI("MAIN", "Total PSRAM: %d bytes", esp_psram_get_size());
     ESP_LOGI("MAIN", "Free Heap: %d bytes", esp_get_free_heap_size());
@@ -340,7 +417,14 @@ extern "C" void app_main(void)
     audio_hal_init();
     audio_i2s_test_tone();
 
-    // Inisialisasi tombol boot sebagai input
+    // WakeNet9 Hi ESP menggunakan PCM16 mono 16 kHz dari INMP441.
+    if (!wakeword_init()) {
+        ESP_LOGE(TAG, "WakeNet init gagal. Sistem tetap bisa dimulai dengan tombol BOOT.");
+        display_status("WakeNet gagal!");
+    } else {
+        display_status("Katakan: Hi, ESP");
+    }
+
     gpio_set_direction(BOOT_BUTTON_GPIO, GPIO_MODE_INPUT);
     gpio_set_pull_mode(BOOT_BUTTON_GPIO, GPIO_PULLUP_ONLY);
     ESP_LOGI(TAG, "Tombol boot siap di GPIO0");
@@ -354,7 +438,6 @@ extern "C" void app_main(void)
         while (1) vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    // Matikan WiFi power save supaya koneksi stabil
     esp_wifi_set_ps(WIFI_PS_NONE);
     ESP_LOGI(TAG, "WiFi power save dimatikan");
 
@@ -366,7 +449,7 @@ extern "C" void app_main(void)
     debug_network_path();
     vTaskDelay(pdMS_TO_TICKS(1000));
 
-    display_status("Sistem siap. Tekan tombol untuk mulai...");
+    display_status("Sistem siap. Katakan Hi, ESP...");
 
     BaseType_t task_result = xTaskCreate(audio_task, "audio_task", 10240, NULL, 5, NULL);
     if (task_result != pdPASS)
