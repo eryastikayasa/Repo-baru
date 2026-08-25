@@ -44,6 +44,13 @@ jobs:
       - name: Build ESP32-S3
         run: pio run
 
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+        
+          export PLATFORMIO_BUILD_FLAGS="-DGEMINI_API_KEY=\\\"${GEMINI_API_KEY}\\\""
+               pio run
+
       - name: Download ESP-SR v2.4.5 model source
         run: |
           set -euo pipefail
