@@ -44,7 +44,7 @@ jobs:
       - name: Build ESP32-S3
         run: pio run
 
-      - name: Generate ESP-SR srmodels.bin with official movemodel.py
+      - name: Generate ESP-SR srmodels.bin with official pack_model.py
         env:
           PYTHONUNBUFFERED: "1"
         run: |
@@ -66,8 +66,10 @@ jobs:
             ESP_SR_DIR="$(find .pio -type d -path '*/managed_components/espressif__esp-sr' -print -quit 2>/dev/null || true)"
           fi
           test -n "$ESP_SR_DIR"
-          test -f "$ESP_SR_DIR/model/movemodel.py"
-          test -f "$ESP_SR_DIR/model/pack_model.py"
+          test -d "$ESP_SR_DIR"
+
+          PACKER="$ESP_SR_DIR/model/pack_model.py"
+          test -f "$PACKER"
 
           MODEL_SRC="$ESP_SR_DIR/model/wakenet_model/wn9_hiesp"
           test -d "$MODEL_SRC"
@@ -77,48 +79,28 @@ jobs:
           echo "=== ESP-SR MODEL DIAGNOSTIC ==="
           echo "Final sdkconfig: $SDKCONFIG"
           echo "Exact managed ESP-SR component: $ESP_SR_DIR"
+          echo "Official packer: $PACKER"
           echo "Python: $(python --version)"
           echo "ESP-SR model source: $MODEL_SRC"
           grep -E '^CONFIG_IDF_TARGET=' "$SDKCONFIG" || true
           grep -E '^CONFIG_SR_WN_WN9_HIESP=y$' "$SDKCONFIG"
           echo "--- source model files ---"
           ls -lah "$MODEL_SRC"
-          echo "--- movemodel help ---"
-          python -u "$ESP_SR_DIR/model/movemodel.py" --help
+
+          # Build-system-compatible output directory.
+          mkdir -p "$BUILD/srmodels"
+          rm -f "$BUILD/srmodels/srmodels.bin"
+          rm -rf "$BUILD/srmodels/wn9_hiesp"
+          cp -a "$MODEL_SRC" "$BUILD/srmodels/wn9_hiesp"
 
           MODEL="$BUILD/srmodels/srmodels.bin"
-          echo "=== RUN OFFICIAL MOVEMODEL.PY ==="
-          set +e
-          python -u "$ESP_SR_DIR/model/movemodel.py" \
-            -d1 "$SDKCONFIG" \
-            -d2 "$ESP_SR_DIR" \
-            -d3 "$BUILD"
-          MOVEMODEL_RC=$?
-          set -e
-          echo "movemodel.py exit code: $MOVEMODEL_RC"
+          echo "=== RUN OFFICIAL PACK_MODEL.PY ==="
+          python -u "$PACKER" \
+            -m "$BUILD/srmodels" \
+            -o "$BUILD/srmodels/srmodels.bin"
 
           echo "--- generated srmodels tree ---"
-          if [ -d "$BUILD/srmodels" ]; then
-            find "$BUILD/srmodels" -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
-          else
-            echo "srmodels directory was not generated"
-          fi
-
-          # ESP-SR's official movemodel.py normally performs this exact copy + pack.
-          # If the managed script exits without producing the selected model, use the
-          # same component's official pack_model.py as a deterministic fallback.
-          if [ "$MOVEMODEL_RC" -ne 0 ] || \
-             [ ! -s "$MODEL" ] || \
-             [ ! -s "$BUILD/srmodels/wn9_hiesp/wn9_index" ] || \
-             [ ! -s "$BUILD/srmodels/wn9_hiesp/wn9_data" ]; then
-            echo "=== MOVEMODEL DID NOT PRODUCE wn9_hiesp; OFFICIAL PACK FALLBACK ==="
-            rm -rf "$BUILD/srmodels"
-            mkdir -p "$BUILD/srmodels"
-            cp -a "$MODEL_SRC" "$BUILD/srmodels/wn9_hiesp"
-            python -u "$ESP_SR_DIR/model/pack_model.py" \
-              -m "$BUILD/srmodels" \
-              -o "$BUILD/srmodels/srmodels.bin"
-          fi
+          find "$BUILD/srmodels" -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
 
           test -s "$MODEL"
           test -s "$BUILD/srmodels/wn9_hiesp/wn9_index"
@@ -128,6 +110,7 @@ jobs:
           grep -a -q "wn9_hiesp" "$MODEL"
           echo "ESP-SR model image: $MODEL"
           echo "ESP-SR model size: $MODEL_SIZE bytes"
+          echo "Official ESP-SR pack_model.py: PASS"
           echo "WakeNet9 Hi ESP model files: PASS"
 
       - name: Audit final sdkconfig, 16MB flash and WakeNet9
