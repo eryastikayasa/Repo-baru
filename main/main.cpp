@@ -80,17 +80,18 @@ static bool wakeword_init(void)
     }
 
     // === PERBAIKAN UTAMA ===
-    // Ambil data model langsung dari list, bukan pakai fungsi yang tidak ada
-    model_iface_data_t *model_data = sr_models->model_data[model_index];
-    if (!model_data) {
-        ESP_LOGE(TAG, "Data model untuk %s kosong", WAKE_MODEL_NAME);
-        wake_iface = nullptr;
-        esp_srmodel_deinit(sr_models);
-        sr_models = nullptr;
-        return false;
-    }
+// Ambil data model langsung dari list
+srmodel_data_t *raw_model_data = sr_models->model_data[model_index];
+model_iface_data_t *model_data = (model_iface_data_t *)raw_model_data;
+if (!model_data) {
+    ESP_LOGE(TAG, "Data model untuk %s kosong", WAKE_MODEL_NAME);
+    wake_iface = nullptr;
+    esp_srmodel_deinit(sr_models);
+    sr_models = nullptr;
+    return false;
+}
 
-    wake_model = wake_iface->create(model_data, DET_MODE_90);
+wake_model = wake_iface->create(model_data, DET_MODE_90);
     if (!wake_model) {
         ESP_LOGE(TAG, "Gagal membuat WakeNet model: %s", WAKE_MODEL_NAME);
         wake_iface = nullptr;
