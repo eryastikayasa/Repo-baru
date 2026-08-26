@@ -38,3 +38,17 @@ jobs:
             exit 1
           fi
           echo "No wn9_hiesp reference found in main/ or sdkconfig.defaults"
+
+      - name: Checkout ESP-SR v2.4.5
+        uses: actions/checkout@v4
+        with:
+          repository: espressif/esp-sr
+          ref: v2.4.5
+          path: esp-sr
+
+      - name: Print wakenet9_quantized.c lines 340-355
+        shell: bash
+        run: |
+          test -f esp-sr/src/wakenet/wakenet9_quantized.c
+          echo "=== ESP-SR v2.4.5: wakenet9_quantized.c lines 340-355 ==="
+          nl -ba esp-sr/src/wakenet/wakenet9_quantized.c | sed -n '340,355p'
