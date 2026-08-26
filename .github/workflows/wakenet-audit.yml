@@ -15,30 +15,26 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - name: Setup PlatformIO
+      - name: Verify wakeword script is configured
+        shell: bash
         run: |
-          pip install -U platformio
-          pio pkg install
+          grep -q 'extra_scripts.*prepare_wakeword.py' platformio.ini
+          echo "prepare_wakeword.py is configured in platformio.ini"
 
-      - name: Build firmware
-        run: pio run
-
-      - name: Find and print wakenet9_quantized.c lines
+      - name: Check Alexa model reference
+        shell: bash
         run: |
-          FILE=$(find ~/.platformio -name 'wakenet9_quantized.c' | head -n 1)
-          if [ -z "$FILE" ]; then
-            echo "File not found in PlatformIO packages"
-            # fallback: search entire workspace
-            FILE=$(find . -name 'wakenet9_quantized.c' | head -n 1)
-          fi
-          echo "Found: $FILE"
-          if [ -z "$FILE" ]; then
-            echo "ERROR: wakenet9_quantized.c not found"
+          grep -RIn --exclude-dir=.git 'wn9_alexa' main/ components/ scripts/ platformio.ini sdkconfig.defaults
+          echo "Found wn9_alexa reference"
+
+      - name: Check no HIESP references
+        shell: bash
+        run: |
+          if grep -RIn --exclude-dir=.git 'wn9_hiesp' main/ sdkconfig.defaults; then
+            echo "Found wn9_hiesp reference; aborting"
             exit 1
           fi
-          sed -n '330,365p' "$FILE"
+          echo "No wn9_hiesp reference found in main/ or sdkconfig.defaults"
