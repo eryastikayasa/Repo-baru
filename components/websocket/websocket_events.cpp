@@ -45,6 +45,8 @@ void websocket_event_handler(void *handler_args, esp_event_base_t base,
             websocket_rx_flush_queue();
             websocket_rx_request_reset();
             request_audio_buffer_clear();
+            face_set_state(FACE_THINKING);
+            face_render();
             display_status("AI Terhubung...");
             websocket_schedule_setup(websocket_connection_generation);
             break;
@@ -64,6 +66,10 @@ void websocket_event_handler(void *handler_args, esp_event_base_t base,
             }
             if ((data->op_code == 0x00 || data->op_code == 0x01 || data->op_code == 0x02) &&
                 data->data_ptr && data->data_len > 0) {
+                /* Gemini has started returning a response payload. Move the
+                 * face to SPEAKING only after a real WS data frame arrives. */
+                face_set_state(FACE_SPEAKING);
+                face_render();
                 (void)websocket_rx_enqueue_data(data, websocket_connection_generation);
             }
             break;
@@ -88,6 +94,8 @@ void websocket_event_handler(void *handler_args, esp_event_base_t base,
             websocket_rx_flush_queue();
             websocket_rx_request_reset();
             request_audio_buffer_clear();
+            face_set_state(FACE_IDLE);
+            face_render();
             break;
 
         case WEBSOCKET_EVENT_DISCONNECTED:
@@ -100,6 +108,8 @@ void websocket_event_handler(void *handler_args, esp_event_base_t base,
             websocket_rx_flush_queue();
             websocket_rx_request_reset();
             request_audio_buffer_clear();
+            face_set_state(FACE_IDLE);
+            face_render();
             display_status("AI Disconnected");
             if (session_resumable && session_handle[0] != '\0')
                 ESP_LOGI(TAG, "Session resumption handle dipertahankan");
@@ -115,17 +125,17 @@ void websocket_event_handler(void *handler_args, esp_event_base_t base,
             websocket_rx_flush_queue();
             websocket_rx_request_reset();
             request_audio_buffer_clear();
+            face_set_state(FACE_IDLE);
+            face_render();
             break;
 
         case WEBSOCKET_EVENT_FINISH:
             ESP_LOGI(TAG, "WebSocket FINISH");
-            // Hancurkan client untuk memungkinkan koneksi ulang
             if (client != NULL) {
                 esp_websocket_client_destroy(client);
                 client = NULL;
             }
-            // Reset flag internal websocket_mgr agar bisa start lagi
-            websocket_reset_started(); // Pastikan fungsi ini dideklarasikan
+            websocket_reset_started();
             break;
 
         default:
