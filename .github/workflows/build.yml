@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - fix/geminiproject
+      - feature/wakeword-alexa
   pull_request:
     branches:
       - main
@@ -72,7 +73,7 @@ jobs:
       # ============================================================
       # ESP-SR 2.4.5 MODEL SOURCE
       # ============================================================
-      - name: Download ESP-SR v2.4.5 model source
+      - name: Download ESP-SR v2.4.5 Alexa model source
         run: |
           set -euo pipefail
 
@@ -89,12 +90,12 @@ jobs:
           git remote add origin https://github.com/espressif/esp-sr.git
 
           git config core.sparseCheckout true
-          git sparse-checkout set model/wakenet_model/wn9_hiesp
+          git sparse-checkout set model/wakenet_model/wn9_alexa
 
           git fetch --depth 1 origin "$ESP_SR_COMMIT"
           git checkout --detach FETCH_HEAD
 
-          MODEL_SRC="$SRC_DIR/model/wakenet_model/wn9_hiesp"
+          MODEL_SRC="$SRC_DIR/model/wakenet_model/wn9_alexa"
 
           test -d "$MODEL_SRC"
           test -s "$MODEL_SRC/wn9_index"
@@ -130,7 +131,7 @@ jobs:
           PACKER="$PWD/scripts/pack_model.py"
           test -f "$PACKER"
 
-          MODEL_SRC="$RUNNER_TEMP/esp-sr-v2.4.5/model/wakenet_model/wn9_hiesp"
+          MODEL_SRC="$RUNNER_TEMP/esp-sr-v2.4.5/model/wakenet_model/wn9_alexa"
 
           test -d "$MODEL_SRC"
           test -s "$MODEL_SRC/wn9_index"
@@ -143,7 +144,7 @@ jobs:
           echo "ESP-SR v2.4.5 model source: $MODEL_SRC"
 
           grep -E '^CONFIG_IDF_TARGET=' "$SDKCONFIG" || true
-          grep -E '^CONFIG_SR_WN_WN9_HIESP=y$' "$SDKCONFIG"
+          grep -E '^CONFIG_SR_WN_WN9_ALEXA=y$' "$SDKCONFIG"
 
           echo "--- source model files ---"
           ls -lah "$MODEL_SRC"
@@ -153,9 +154,9 @@ jobs:
 
           mkdir -p "$BUILD/srmodels"
           rm -f "$BUILD/srmodels/srmodels.bin"
-          rm -rf "$BUILD/srmodels/wn9_hiesp"
+          rm -rf "$BUILD/srmodels/wn9_alexa"
 
-          cp -a "$MODEL_SRC" "$BUILD/srmodels/wn9_hiesp"
+          cp -a "$MODEL_SRC" "$BUILD/srmodels/wn9_alexa"
 
           MODEL="$BUILD/srmodels/srmodels.bin"
 
@@ -174,23 +175,23 @@ jobs:
             | sort
 
           test -s "$MODEL"
-          test -s "$BUILD/srmodels/wn9_hiesp/wn9_index"
-          test -s "$BUILD/srmodels/wn9_hiesp/wn9_data"
+          test -s "$BUILD/srmodels/wn9_alexa/wn9_index"
+          test -s "$BUILD/srmodels/wn9_alexa/wn9_data"
 
           MODEL_SIZE=$(stat -c %s "$MODEL")
           test "$MODEL_SIZE" -le $((0x400000))
 
-          grep -a -q "wn9_hiesp" "$MODEL"
+          grep -a -q "wn9_alexa" "$MODEL"
 
           echo "ESP-SR model image: $MODEL"
           echo "ESP-SR model size: $MODEL_SIZE bytes"
           echo "ESP-SR pack_model.py: PASS"
-          echo "WakeNet9 Hi ESP model files: PASS"
+          echo "WakeNet9 Alexa model files: PASS"
 
       # ============================================================
       # AUDIT FLASH / WAKENET9
       # ============================================================
-      - name: Audit final sdkconfig, 16MB flash and WakeNet9
+      - name: Audit final sdkconfig, 16MB flash and WakeNet9 Alexa
         run: |
           set -euo pipefail
 
@@ -216,7 +217,7 @@ jobs:
 
           grep -E '^model,.*0x400000' partitions/partitions.csv
 
-          grep -E '^CONFIG_SR_WN_WN9_HIESP=y$' "$SDKCONFIG"
+          grep -E '^CONFIG_SR_WN_WN9_ALEXA=y$' "$SDKCONFIG"
 
           test -f "$BUILD/firmware.bin"
           test -f "$BUILD/bootloader.bin"
@@ -224,19 +225,19 @@ jobs:
           test -f "$BUILD/firmware.elf"
 
           test -s "$BUILD/srmodels/srmodels.bin"
-          test -s "$BUILD/srmodels/wn9_hiesp/wn9_index"
-          test -s "$BUILD/srmodels/wn9_hiesp/wn9_data"
+          test -s "$BUILD/srmodels/wn9_alexa/wn9_index"
+          test -s "$BUILD/srmodels/wn9_alexa/wn9_data"
 
-          grep -a -q "wn9_hiesp" "$BUILD/srmodels/srmodels.bin"
+          grep -a -q "wn9_alexa" "$BUILD/srmodels/srmodels.bin"
 
           MODEL_SIZE=$(stat -c %s "$BUILD/srmodels/srmodels.bin")
           test "$MODEL_SIZE" -le $((0x400000))
 
           echo "Flash size: 16MB PASS"
           echo "Custom partition table: PASS"
-          echo "WakeNet9 Hi ESP config: PASS"
+          echo "WakeNet9 Alexa config: PASS"
           echo "ESP-SR model generation: PASS"
-          echo "WakeNet9 model payload: PASS"
+          echo "WakeNet9 Alexa model payload: PASS"
           echo "Model partition capacity (4MiB): PASS"
 
       # ============================================================
@@ -285,14 +286,14 @@ jobs:
           test -f "$BUILD/firmware.elf"
 
           test -s "$BUILD/srmodels/srmodels.bin"
-          test -s "$BUILD/srmodels/wn9_hiesp/wn9_index"
-          test -s "$BUILD/srmodels/wn9_hiesp/wn9_data"
+          test -s "$BUILD/srmodels/wn9_alexa/wn9_index"
+          test -s "$BUILD/srmodels/wn9_alexa/wn9_data"
 
           echo "========================================"
           echo "COMPATIBILITY GATE: PASS"
           echo "ESP32-S3 + 16MB Flash + 8MB OPI PSRAM"
           echo "ESP-IDF 6.0.1 + ESP-SR 2.4.5"
-          echo "WakeNet9 Hi ESP + ESP-SR model tools"
+          echo "WakeNet9 Alexa + ESP-SR model tools"
           echo "CA bundle + embedded TLS trust store"
           echo "Model partition: 4MiB"
           echo "========================================"
