@@ -32,13 +32,13 @@
 
 static const char *TAG = "MAIN";
 #define BOOT_BUTTON_GPIO GPIO_NUM_0
-#define WAKE_MODEL_NAME "wn9_hiesp"
+#define WAKE_MODEL_NAME "wn9_alexa"
 
 // ============================================================
-// WAKE WORD - ESP-SR WakeNet9 "Hi, ESP"
+// WAKE WORD - ESP-SR WakeNet9 "Alexa"
 // Model is loaded from the ESP-SR "model" partition.
 // ESP-SR's CMake generates build/srmodels/srmodels.bin from
-// CONFIG_SR_WN_WN9_HIESP and flashes it to that partition.
+// CONFIG_SR_WN_WN9_ALEXA and flashes it to that partition.
 // ============================================================
 
 static srmodel_list_t *sr_models = nullptr;
@@ -110,7 +110,7 @@ static bool wakeword_init(void)
         return false;
     }
 
-    ESP_LOGI(TAG, "Wake word aktif: HI, ESP");
+    ESP_LOGI(TAG, "Wake word aktif: ALEXA");
     ESP_LOGI(TAG, "========================================");
     return true;
 }
@@ -339,7 +339,7 @@ static void audio_task(void *arg)
         if (bytes_read > 0) buffer_pos += bytes_read;
 
         if (!assistant_active) {
-            // ========== MODE IDLE: tunggu "Hi, ESP" ==========
+            // ========== MODE IDLE: tunggu "Alexa" ==========
             // Diagnostic setiap 1 detik. Tidak mengubah logika utama.
             int64_t now_debug_us = esp_timer_get_time();
             if (now_debug_us - last_debug_us >= 1000000) {
@@ -378,7 +378,7 @@ static void audio_task(void *arg)
                 last_wake_result = wake_result;
 
                 if (wake_result > 0) {
-                    ESP_LOGW(TAG, ">>> WAKE WORD TERDETEKSI: HI, ESP (id=%d)", wake_result);
+                    ESP_LOGW(TAG, ">>> WAKE WORD TERDETEKSI: ALEXA (id=%d)", wake_result);
                     assistant_active = true;
                     connect_start_us = esp_timer_get_time();
                     last_user_activity_us = connect_start_us;
@@ -489,12 +489,12 @@ extern "C" void app_main()
     audio_hal_init();
     audio_i2s_test_tone();
 
-    // WakeNet9 Hi ESP menggunakan PCM16 mono 16 kHz dari INMP441.
+    // WakeNet9 Alexa menggunakan PCM16 mono 16 kHz dari INMP441.
     if (!wakeword_init()) {
         ESP_LOGE(TAG, "WakeNet init gagal. Sistem tetap bisa dimulai dengan tombol BOOT.");
         display_status("WakeNet gagal!");
     } else {
-        display_status("Katakan: Hi, ESP");
+        display_status("Katakan: Alexa");
     }
 
     gpio_set_direction(BOOT_BUTTON_GPIO, GPIO_MODE_INPUT);
@@ -521,7 +521,7 @@ extern "C" void app_main()
     debug_network_path();
     vTaskDelay(pdMS_TO_TICKS(1000));
 
-    display_status("Sistem siap. Katakan Hi, ESP...");
+    display_status("Sistem siap. Katakan Alexa...");
 
     BaseType_t task_result = xTaskCreate(audio_task, "audio_task", 10240, NULL, 5, NULL);
     if (task_result != pdPASS)
