@@ -1,0 +1,20 @@
+name: Check Wakenet Line
+
+on: workflow_dispatch
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ESP-SR v2.4.5
+        uses: actions/checkout@v4
+        with:
+          repository: espressif/esp-sr
+          ref: v2.4.5
+          path: esp-sr
+
+      - name: Print line 340-355
+        run: |
+          FILE=$(find esp-sr -name 'wakenet9_quantized.c' | head -n 1)
+          echo "File found: $FILE"
+          sed -n '340,355p' "$FILE"
