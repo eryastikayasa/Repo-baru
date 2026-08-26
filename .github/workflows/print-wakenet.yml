@@ -1,0 +1,24 @@
+name: Print Wakenet Line
+
+on: workflow_dispatch
+
+jobs:
+  print:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ESP-SR commit
+        uses: actions/checkout@v4
+        with:
+          repository: espressif/esp-sr
+          ref: 5fadfbd5
+          path: esp-sr
+
+      - name: Print line 340-355 of wakenet9_quantized.c
+        run: |
+          FILE=$(find esp-sr -name 'wakenet9_quantized.c' | head -n 1)
+          echo "File found: $FILE"
+          if [ -z "$FILE" ]; then
+            echo "ERROR: file not found"
+            exit 1
+          fi
+          sed -n '340,355p' "$FILE"
