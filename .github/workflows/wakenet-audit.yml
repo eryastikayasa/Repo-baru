@@ -49,9 +49,9 @@ jobs:
         shell: bash
         run: |
           rm -rf esp-sr-registry
-          compote registry sync esp-sr-registry \
+          compote registry sync \
             --component 'espressif/esp-sr==2.4.5' \
-            --resolution latest
+            esp-sr-registry
           SRC=$(find esp-sr-registry -type f -path '*/src/wakenet/wakenet9_quantized.c' | head -n 1)
           test -n "$SRC"
           echo "ESP-SR source: $SRC"
