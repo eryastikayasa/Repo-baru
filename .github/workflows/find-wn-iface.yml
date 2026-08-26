@@ -1,0 +1,36 @@
+name: Find and Print esp_wn_iface.h
+
+on: workflow_dispatch
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: espressif/esp-sr
+          ref: 5fadfbd5bd9df756f543973bd43520d9270ffb1b
+          path: esp-sr
+
+      - name: Find esp_wn_iface.h
+        run: |
+          echo "=== Searching for esp_wn_iface.h ==="
+          find esp-sr -name 'esp_wn_iface.h' -type f
+
+      - name: Print content of esp_wn_iface.h
+        run: |
+          FILE=$(find esp-sr -name 'esp_wn_iface.h' -type f | head -n 1)
+          if [ -z "$FILE" ]; then
+            echo "File not found"
+            exit 1
+          fi
+          echo "File: $FILE"
+          sed -n '1,220p' "$FILE"
+
+      - name: Search model_iface_data_t definition
+        run: |
+          grep -R -n -B5 -A30 "model_iface_data_t" esp-sr --include='*.h' | head -200
+
+      - name: Search model_coeff_getter_t
+        run: |
+          grep -R -n -B5 -A30 "model_coeff_getter_t" esp-sr --include='*.h' | head -200
