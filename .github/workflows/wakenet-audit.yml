@@ -39,36 +39,21 @@ jobs:
           fi
           echo "No wn9_hiesp reference found in main/ or sdkconfig.defaults"
 
-      - name: Install ESP Component Manager
-        shell: bash
-        run: |
-          python -m pip install --upgrade idf-component-manager
-          compote version
+      - name: Checkout ESP-SR v2.4.5
+        uses: actions/checkout@v4
+        with:
+          repository: espressif/esp-sr
+          ref: v2.4.5
+          path: esp-sr
 
-      - name: Fetch ESP-SR v2.4.5 from Component Registry
+      - name: Print line 340-355
         shell: bash
         run: |
-          rm -rf esp-sr-registry
-          set +e
-          compote registry sync \
-            --component 'espressif/esp-sr==2.4.5' \
-            esp-sr-registry
-          SYNC_RC=$?
-          set -e
-          echo "compote registry sync exit code: $SYNC_RC"
-          echo "Continuing because the downloaded component files are what this source audit needs."
-          SRC=$(find esp-sr-registry -type f -path '*/src/wakenet/wakenet9_quantized.c' | head -n 1)
-          if [ -z "$SRC" ]; then
-            echo "ERROR: wakenet9_quantized.c was not found in the downloaded ESP-SR package."
-            find esp-sr-registry -maxdepth 5 -type f | head -n 100
+          FILE=$(find esp-sr -name 'wakenet9_quantized.c' -type f | head -n 1)
+          echo "File found: $FILE"
+          if [ -z "$FILE" ]; then
+            echo "ERROR: wakenet9_quantized.c not found in ESP-SR v2.4.5"
             exit 1
           fi
-          echo "ESP-SR source: $SRC"
-          echo "$SRC" > /tmp/esp_sr_source_path
-
-      - name: Print wakenet9_quantized.c lines 340-355
-        shell: bash
-        run: |
-          SRC=$(cat /tmp/esp_sr_source_path)
           echo "=== ESP-SR v2.4.5: wakenet9_quantized.c lines 340-355 ==="
-          nl -ba "$SRC" | sed -n '340,355p'
+          nl -ba "$FILE" | sed -n '340,355p'
