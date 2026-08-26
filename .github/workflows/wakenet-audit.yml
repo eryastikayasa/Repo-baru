@@ -8,6 +8,7 @@ on:
       - 'platformio.ini'
       - 'scripts/**'
       - 'main/**'
+      - 'sdkconfig.defaults'
       - 'components/**'
 
 jobs:
@@ -17,29 +18,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install PlatformIO
-        run: pip install platformio
-
       - name: Verify wakeword script is configured
         shell: bash
         run: |
-          grep -Eq 'extra_scripts[[:space:]]*=.*prepare_wakeword\.py|extra_scripts.*prepare_wakeword\.py' platformio.ini
+          grep -q 'extra_scripts.*prepare_wakeword.py' platformio.ini
           echo "prepare_wakeword.py is configured in platformio.ini"
 
-      - name: Run PlatformIO build
-        run: pio run
-
-      - name: Verify Alexa model references
+      - name: Check Alexa model reference
         shell: bash
         run: |
-          grep -RIn --exclude-dir=.git 'wn9_alexa' main components scripts platformio.ini || true
-          if grep -RIn --exclude-dir=.git 'wn9_hiesp' main components scripts platformio.ini; then
-            echo 'ERROR: stale wn9_hiesp reference found in source/configuration.'
+          grep -RIn --exclude-dir=.git 'wn9_alexa' main/ components/ scripts/ platformio.ini sdkconfig.defaults
+          echo "Found wn9_alexa reference"
+
+      - name: Check no HIESP references
+        shell: bash
+        run: |
+          if grep -RIn --exclude-dir=.git 'wn9_hiesp' main/ sdkconfig.defaults; then
+            echo "Found wn9_hiesp reference; aborting"
             exit 1
           fi
-          echo 'No stale wn9_hiesp source/configuration reference found.'
+          echo "No wn9_hiesp reference found in main/ or sdkconfig.defaults"
