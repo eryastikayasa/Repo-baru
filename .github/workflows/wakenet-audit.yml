@@ -39,16 +39,27 @@ jobs:
           fi
           echo "No wn9_hiesp reference found in main/ or sdkconfig.defaults"
 
-      - name: Checkout ESP-SR v2.4.5
-        uses: actions/checkout@v4
-        with:
-          repository: espressif/esp-sr
-          ref: v2.4.5
-          path: esp-sr
+      - name: Install ESP Component Manager
+        shell: bash
+        run: |
+          python -m pip install --upgrade idf-component-manager
+          compote version
+
+      - name: Fetch ESP-SR v2.4.5 from Component Registry
+        shell: bash
+        run: |
+          rm -rf esp-sr-registry
+          compote registry sync esp-sr-registry \
+            --component 'espressif/esp-sr==2.4.5' \
+            --resolution latest
+          SRC=$(find esp-sr-registry -type f -path '*/src/wakenet/wakenet9_quantized.c' | head -n 1)
+          test -n "$SRC"
+          echo "ESP-SR source: $SRC"
+          echo "$SRC" > /tmp/esp_sr_source_path
 
       - name: Print wakenet9_quantized.c lines 340-355
         shell: bash
         run: |
-          test -f esp-sr/src/wakenet/wakenet9_quantized.c
+          SRC=$(cat /tmp/esp_sr_source_path)
           echo "=== ESP-SR v2.4.5: wakenet9_quantized.c lines 340-355 ==="
-          nl -ba esp-sr/src/wakenet/wakenet9_quantized.c | sed -n '340,355p'
+          nl -ba "$SRC" | sed -n '340,355p'
