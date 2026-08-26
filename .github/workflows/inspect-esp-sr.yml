@@ -1,0 +1,44 @@
+name: Inspect ESP-SR Structures
+
+on: workflow_dispatch
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install PlatformIO
+        run: pip install -U platformio
+
+      - name: Install ESP-SR dependency only
+        run: pio pkg install
+
+      - name: Find and print srmodel_data_t definition
+        run: |
+          set -euo pipefail
+          echo "=== Searching for srmodel_data_t definition ==="
+          FILES=$(grep -R "srmodel_data_t" ~/.platformio/packages ~/.platformio/libdeps 2>/dev/null | grep -v Binary | cut -d: -f1 | sort -u)
+          if [ -z "$FILES" ]; then
+            echo "Not found in PlatformIO cache. Searching local workspace..."
+            FILES=$(find . -type f -name '*.h' | xargs grep -l 'srmodel_data_t' 2>/dev/null || true)
+          fi
+          if [ -z "$FILES" ]; then
+            echo "ERROR: srmodel_data_t not found"
+            exit 1
+          fi
+          for f in $FILES; do
+            echo "=============================="
+            echo "File: $f"
+            echo "=============================="
+            grep -n -B5 -A40 'srmodel_data_t' "$f"
+            echo ""
+          done
