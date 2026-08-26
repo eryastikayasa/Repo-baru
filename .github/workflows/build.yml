@@ -70,6 +70,32 @@ jobs:
       - name: Build ESP32-S3
         run: pio run
 
+
+      - name: Print srmodel_data_t definition
+        run: |
+         set -euo pipefail
+         echo "=== Searching for srmodel_data_t definition ==="
+         FILES=$(grep -R "srmodel_data_t" ~/.platformio/packages ~/.platformio/libdeps 2>/dev/null | grep -v Binary | cut -d: -f1 | sort -u)
+         if [ -z "$FILES" ]; then
+           echo "WARNING: no header containing srmodel_data_t found in PlatformIO cache."
+            # Try to find in the whole workspace
+            FILES=$(find . -type f -name "*.h" -print | xargs grep -l "srmodel_data_t" 2>/dev/null || true)
+         fi
+         if [ -z "$FILES" ]; then
+            echo "ERROR: srmodel_data_t not found anywhere."
+            exit 1
+         fi
+         for f in $FILES; do
+             echo "----------------------------------------"
+             echo "File: $f"
+             echo "----------------------------------------"
+             # Print lines around the struct definition (assuming typedef struct block)
+             grep -n -B5 -A30 "srmodel_data_t" "$f" || true
+             # Also attempt to extract the typedef struct if present
+            sed -n '/typedef struct/,/} srmodel_data_t/p' "$f" || true
+            echo ""
+          done
+
       # ============================================================
       # ESP-SR 2.4.5 MODEL SOURCE
       # ============================================================
