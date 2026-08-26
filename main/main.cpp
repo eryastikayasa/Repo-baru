@@ -53,79 +53,39 @@ static bool wakeword_init(void)
     ESP_LOGI(TAG, "Model: %s", WAKE_MODEL_NAME);
     ESP_LOGI(TAG, "Loading ESP-SR models from partition: model");
 
+    // IMPORTANT: esp_wn_handle_from_name() must be called only after
+    // esp_srmodel_init() has loaded the model list from flash.
     sr_models = esp_srmodel_init("model");
-    if (sr_models == NULL) {
-        ESP_LOGE(TAG, "models NULL");
+    if (!sr_models) {
+        ESP_LOGE(TAG, "ESP-SR model loader gagal: partition 'model' tidak tersedia atau model image tidak valid");
         return false;
     }
 
-    ESP_LOGI(TAG, "Jumlah model: %d", sr_models->num);
-    for (int i = 0; i < sr_models->num; i++) {
-        ESP_LOGI(TAG, "Model %d: '%s'", i, sr_models->model_name[i]);
-    }
+    ESP_LOGI(TAG, "ESP-SR models loaded: count=%d", sr_models->num);
 
-    char *model_name =
-        esp_srmodel_filter(sr_models, ESP_WN_PREFIX, NULL);
-
-    ESP_LOGI(TAG, "Filtered model: '%s'",
-             model_name ? model_name : "(null)");
-
-    if (model_name == NULL) {
-        ESP_LOGE(TAG, "Model name NULL");
+    if (esp_srmodel_exists(sr_models, (char *)WAKE_MODEL_NAME) < 0) {
+        ESP_LOGE(TAG, "WakeNet model tidak ditemukan di srmodels.bin: %s", WAKE_MODEL_NAME);
+        esp_srmodel_deinit(sr_models);
+        sr_models = nullptr;
         return false;
     }
 
-    wake_iface = esp_wn_handle_from_name(model_name);
-
-    if (wake_iface == NULL) {
-        ESP_LOGE(TAG,
-                 "wake_iface NULL untuk %s",
-                 model_name);
+    wake_iface = esp_wn_handle_from_name(WAKE_MODEL_NAME);
+    if (!wake_iface) {
+        ESP_LOGE(TAG, "WakeNet handle tidak ditemukan: %s", WAKE_MODEL_NAME);
+        esp_srmodel_deinit(sr_models);
+        sr_models = nullptr;
         return false;
     }
 
-    ESP_LOGI(TAG, "wake_iface OK, create...");
-
-    wake_model = wake_iface->create(model_name, DET_MODE_90);
-
-    if (wake_model == NULL) {
-        ESP_LOGE(TAG, "wake_model NULL setelah create");
+    wake_model = wake_iface->create(WAKE_MODEL_NAME, DET_MODE_90);
+    if (!wake_model) {
+        ESP_LOGE(TAG, "Gagal membuat WakeNet model: %s", WAKE_MODEL_NAME);
+        wake_iface = nullptr;
+        esp_srmodel_deinit(sr_models);
+        sr_models = nullptr;
         return false;
     }
-
-    ESP_LOGI(TAG, "WakeNet ready");
-
-    float current_threshold =
-        wake_iface->get_det_threshold(wake_model, 1);
-
-    ESP_LOGI(TAG,
-             "WakeNet detection threshold (default): %.4f",
-             current_threshold);
-
-    wake_chunk_samples =
-        wake_iface->get_samp_chunksize(wake_model);
-
-    int wake_rate =
-        wake_iface->get_samp_rate(wake_model);
-
-    int wake_channels =
-        wake_iface->get_channel_num(wake_model);
-
-    ESP_LOGI(TAG,
-             "WakeNet ready: rate=%d Hz chunk=%d samples channels=%d",
-             wake_rate,
-             wake_chunk_samples,
-             wake_channels);
-
-    if (wake_rate != MIC_SAMPLE_RATE || wake_channels != 1) {
-        ESP_LOGE(TAG,
-                 "WakeNet audio mismatch: expected %d Hz mono",
-                 MIC_SAMPLE_RATE);
-        return false;
-    }
-
-    return true;
-}
 
     // BASELINE ONLY: read the model's actual default detection threshold.
     // Do not change the threshold yet; this is for measurement before tuning.
