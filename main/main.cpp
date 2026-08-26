@@ -62,7 +62,9 @@ static bool wakeword_init(void)
 
     ESP_LOGI(TAG, "ESP-SR models loaded: count=%d", sr_models->num);
 
-    if (esp_srmodel_exists(sr_models, (char *)WAKE_MODEL_NAME) < 0) {
+    // Cari index model Alexa, simpan untuk ambil data model
+    int model_index = esp_srmodel_exists(sr_models, (char *)WAKE_MODEL_NAME);
+    if (model_index < 0) {
         ESP_LOGE(TAG, "WakeNet model tidak ditemukan di srmodels.bin: %s", WAKE_MODEL_NAME);
         esp_srmodel_deinit(sr_models);
         sr_models = nullptr;
@@ -78,10 +80,10 @@ static bool wakeword_init(void)
     }
 
     // === PERBAIKAN UTAMA ===
-    // Ambil data model dari daftar yang sudah dimuat, lalu kirim ke create()
-    model_iface_data_t *model_data = esp_srmodel_get_model_data(sr_models, WAKE_MODEL_NAME);
+    // Ambil data model langsung dari list, bukan pakai fungsi yang tidak ada
+    model_iface_data_t *model_data = sr_models->model_data[model_index];
     if (!model_data) {
-        ESP_LOGE(TAG, "Gagal mendapatkan data model untuk %s", WAKE_MODEL_NAME);
+        ESP_LOGE(TAG, "Data model untuk %s kosong", WAKE_MODEL_NAME);
         wake_iface = nullptr;
         esp_srmodel_deinit(sr_models);
         sr_models = nullptr;
