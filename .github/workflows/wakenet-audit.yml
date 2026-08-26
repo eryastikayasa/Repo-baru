@@ -49,11 +49,20 @@ jobs:
         shell: bash
         run: |
           rm -rf esp-sr-registry
+          set +e
           compote registry sync \
             --component 'espressif/esp-sr==2.4.5' \
             esp-sr-registry
+          SYNC_RC=$?
+          set -e
+          echo "compote registry sync exit code: $SYNC_RC"
+          echo "Continuing because the downloaded component files are what this source audit needs."
           SRC=$(find esp-sr-registry -type f -path '*/src/wakenet/wakenet9_quantized.c' | head -n 1)
-          test -n "$SRC"
+          if [ -z "$SRC" ]; then
+            echo "ERROR: wakenet9_quantized.c was not found in the downloaded ESP-SR package."
+            find esp-sr-registry -maxdepth 5 -type f | head -n 100
+            exit 1
+          fi
           echo "ESP-SR source: $SRC"
           echo "$SRC" > /tmp/esp_sr_source_path
 
