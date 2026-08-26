@@ -13,10 +13,7 @@ jobs:
           ref: 5fadfbd5bd9df756f543973bd43520d9270ffb1b
           path: esp-sr
 
-      - name: Find and print srmodel_data_t definition
+      - name: Print model_iface_data_t definition
         run: |
-          set -euo pipefail
-          echo "=== Searching in ESP-SR source ==="
-          grep -R -n -B5 -A30 "srmodel_data_t" esp-sr --include='*.h' | head -200 || true
-          echo "=== Also search for typedef struct containing srmodel_data_t ==="
-          grep -R -n -B5 -A30 "typedef struct.*srmodel_data_t\|srmodel_data_t" esp-sr --include='*.h' | head -200 || true
+           echo "=== Searching model_iface_data_t in ESP-SR ==="
+           grep -R -n -B5 -A40 "model_iface_data_t" esp-sr --include='*.h' | head -200
