@@ -80,11 +80,19 @@ static bool wakeword_init(void)
     }
 
     // === PERBAIKAN UTAMA ===
-// Ambil data model langsung dari list
-srmodel_data_t *raw_model_data = sr_models->model_data[model_index];
-model_iface_data_t *model_data = (model_iface_data_t *)raw_model_data;
+    // Ambil data model dari list
+srmodel_data_t *srmodel = sr_models->model_data[model_index];
+if (!srmodel) {
+    ESP_LOGE(TAG, "srmodel untuk %s kosong", WAKE_MODEL_NAME);
+    wake_iface = nullptr;
+    esp_srmodel_deinit(sr_models);
+    sr_models = nullptr;
+    return false;
+}
+
+model_iface_data_t *model_data = srmodel->model_data;
 if (!model_data) {
-    ESP_LOGE(TAG, "Data model untuk %s kosong", WAKE_MODEL_NAME);
+    ESP_LOGE(TAG, "model_data untuk %s kosong", WAKE_MODEL_NAME);
     wake_iface = nullptr;
     esp_srmodel_deinit(sr_models);
     sr_models = nullptr;
