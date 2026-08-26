@@ -90,9 +90,10 @@ if (!srmodel) {
     return false;
 }
 
-model_iface_data_t *model_data = srmodel->model_data;
+// Konversi srmodel_data_t ke model_iface_data_t
+model_iface_data_t *model_data = srmodel_get_model_coeff(srmodel);
 if (!model_data) {
-    ESP_LOGE(TAG, "model_data untuk %s kosong", WAKE_MODEL_NAME);
+    ESP_LOGE(TAG, "Gagal mendapatkan model_iface_data_t untuk %s", WAKE_MODEL_NAME);
     wake_iface = nullptr;
     esp_srmodel_deinit(sr_models);
     sr_models = nullptr;
