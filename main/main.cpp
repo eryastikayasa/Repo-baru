@@ -53,8 +53,7 @@ static bool wakeword_init(void)
     ESP_LOGI(TAG, "Model: %s", WAKE_MODEL_NAME);
     ESP_LOGI(TAG, "Loading ESP-SR models from partition: model");
 
-    // IMPORTANT: esp_wn_handle_from_name() must be called only after
-    // esp_srmodel_init() has loaded the model list from flash.
+    // Load model list dari partisi "model"
     sr_models = esp_srmodel_init("model");
     if (!sr_models) {
         ESP_LOGE(TAG, "ESP-SR model loader gagal: partition 'model' tidak tersedia atau model image tidak valid");
@@ -78,7 +77,18 @@ static bool wakeword_init(void)
         return false;
     }
 
-    wake_model = wake_iface->create(WAKE_MODEL_NAME, DET_MODE_90);
+    // === PERBAIKAN UTAMA ===
+    // Ambil data model dari daftar yang sudah dimuat, lalu kirim ke create()
+    model_iface_data_t *model_data = esp_srmodel_get_model_data(sr_models, WAKE_MODEL_NAME);
+    if (!model_data) {
+        ESP_LOGE(TAG, "Gagal mendapatkan data model untuk %s", WAKE_MODEL_NAME);
+        wake_iface = nullptr;
+        esp_srmodel_deinit(sr_models);
+        sr_models = nullptr;
+        return false;
+    }
+
+    wake_model = wake_iface->create(model_data, DET_MODE_90);
     if (!wake_model) {
         ESP_LOGE(TAG, "Gagal membuat WakeNet model: %s", WAKE_MODEL_NAME);
         wake_iface = nullptr;
@@ -86,10 +96,10 @@ static bool wakeword_init(void)
         sr_models = nullptr;
         return false;
     }
+    // =======================
 
-    // BASELINE ONLY: read the model's actual default detection threshold.
-    // Do not change the threshold yet; this is for measurement before tuning.
-    float current_threshold = wake_iface->get_det_threshold(wake_model,1);
+    // BASELINE ONLY: baca threshold default, jangan diubah dulu
+    float current_threshold = wake_iface->get_det_threshold(wake_model, 1);
     ESP_LOGI(TAG, "WakeNet detection threshold (default): %.4f", current_threshold);
 
     wake_chunk_samples = wake_iface->get_samp_chunksize(wake_model);
