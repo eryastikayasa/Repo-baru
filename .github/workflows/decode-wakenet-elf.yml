@@ -59,8 +59,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # ESP32-S3 toolchains may expose either the generic
-          # xtensa-esp-elf name or the target-specific esp32s3 name.
           OBJDUMP=$(find "$HOME/.platformio/packages" -type f \
             \( -name 'xtensa-esp32s3-elf-objdump' \
                -o -name 'xtensa-esp-elf-objdump' \
@@ -69,7 +67,6 @@ jobs:
 
           if [ -z "$OBJDUMP" ]; then
             echo "ERROR: Xtensa objdump not found"
-            echo "=== All objdump binaries under PlatformIO ==="
             find "$HOME/.platformio/packages" -type f -iname '*objdump*' -print | sort || true
             exit 1
           fi
@@ -81,19 +78,19 @@ jobs:
       - name: Disassemble exact WakeNet crash area
         run: |
           set -euo pipefail
-          echo "=== DISASSEMBLY 0x4205fe90 - 0x4205fec0 ==="
+          echo "=== DISASSEMBLY AROUND CRASH PC 0x4205fef8 ==="
           "$OBJDUMP" -d \
-            --start-address=0x4205fe90 \
-            --stop-address=0x4205fec0 \
+            --start-address=0x4205fee0 \
+            --stop-address=0x4205ff30 \
             "$ELF"
 
-      - name: Decode crash address and inspect symbols
+      - name: Decode exact crash and backtrace addresses
         run: |
           set -euo pipefail
           echo "=== SYMBOL / SOURCE CHECK ==="
-          "$OBJDUMP" -t "$ELF" | grep -E 'model_create|wakenet9' | head -n 80 || true
+          "$OBJDUMP" -t "$ELF" | grep -E 'model_create|wakenet9|wakenet9l' | head -n 120 || true
 
-          echo "=== ADDR2LINE ==="
+          echo "=== ADDR2LINE: EXACT CRASH PC + BACKTRACE ==="
           XTENSA_ADDR2LINE=$(find "$HOME/.platformio/packages" -type f \
             \( -name 'xtensa-esp32s3-elf-addr2line' \
                -o -name 'xtensa-esp-elf-addr2line' \
@@ -108,18 +105,60 @@ jobs:
 
           echo "Found addr2line: $XTENSA_ADDR2LINE"
           "$XTENSA_ADDR2LINE" -e "$ELF" -f -C -p \
-            0x4205feb1 \
-            0x42060520 \
-            0x42003497 \
-            0x42003d51
+            0x4205fef8 \
+            0x4205fef5 \
+            0x42060564 \
+            0x420034bd \
+            0x42003d95 \
+            0x42013520 \
+            0x420c6686
 
-      - name: Save disassembly report
+      - name: Show exact ESP-SR source used by the build
         run: |
           set -euo pipefail
-          "$OBJDUMP" -d \
-            --start-address=0x4205fe90 \
-            --stop-address=0x4205fec0 \
-            "$ELF" > wakenet-crash-disassembly.txt
+          SOURCE=$(find artifact -type f -path '*/sr-source/wakenet9_quantized.c' -print -quit || true)
+
+          if [ -z "$SOURCE" ]; then
+            echo "ERROR: Exact ESP-SR source is not present in this build artifact."
+            echo "This decode workflow must use a build produced after the diagnostic build commit."
+            exit 1
+          fi
+
+          echo "Exact ESP-SR source: $SOURCE"
+          echo "=== wakenet9_quantized.c : 320-350 ==="
+          nl -ba "$SOURCE" | sed -n '320,350p'
+          echo "=== wakenet9_quantized.c : 510-540 ==="
+          nl -ba "$SOURCE" | sed -n '510,540p'
+
+      - name: Save disassembly and source report
+        run: |
+          set -euo pipefail
+          SOURCE=$(find artifact -type f -path '*/sr-source/wakenet9_quantized.c' -print -quit)
+
+          {
+            echo "=== DISASSEMBLY AROUND CRASH PC 0x4205fef8 ==="
+            "$OBJDUMP" -d \
+              --start-address=0x4205fee0 \
+              --stop-address=0x4205ff30 \
+              "$ELF"
+            echo
+            echo "=== ADDR2LINE ==="
+            XTENSA_ADDR2LINE=$(find "$HOME/.platformio/packages" -type f \
+              \( -name 'xtensa-esp32s3-elf-addr2line' \
+                 -o -name 'xtensa-esp-elf-addr2line' \
+                 -o -name 'xtensa-esp32-elf-addr2line' \) \
+              -print -quit)
+            "$XTENSA_ADDR2LINE" -e "$ELF" -f -C -p \
+              0x4205fef8 0x4205fef5 0x42060564 0x420034bd \
+              0x42003d95 0x42013520 0x420c6686
+            echo
+            echo "=== SOURCE 320-350 ==="
+            nl -ba "$SOURCE" | sed -n '320,350p'
+            echo
+            echo "=== SOURCE 510-540 ==="
+            nl -ba "$SOURCE" | sed -n '510,540p'
+          } > wakenet-crash-disassembly.txt
+
           cat wakenet-crash-disassembly.txt
 
       - name: Upload disassembly report
