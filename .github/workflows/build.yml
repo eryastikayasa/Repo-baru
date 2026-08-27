@@ -102,6 +102,9 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "=== ESP-SR package resolution ==="
+          pio pkg list | grep -i -E 'esp-sr|espressif.*sr' || true
+
           echo "=== Searching workspace and PlatformIO cache ==="
           SEARCH_ROOTS=("$GITHUB_WORKSPACE" "$HOME/.platformio")
           mapfile -t CANDIDATES < <(find "${SEARCH_ROOTS[@]}" -type f \
@@ -109,22 +112,31 @@ jobs:
             -print 2>/dev/null | sort -u)
 
           printf '%s\n' "${CANDIDATES[@]}"
-
           SR_SOURCE="$(printf '%s\n' "${CANDIDATES[@]}" | grep -E '/wakenet9_quantized\.c$' | head -n1 || true)"
 
+          # PlatformIO may consume ESP-SR from a managed component/package
+          # without leaving the original C sources in the build workspace.
+          # For this diagnostic we use the matching ESP-SR v2.4.6 source tree
+          # from the official Espressif tag so the ELF/source comparison is
+          # deterministic.
           if [ -z "$SR_SOURCE" ]; then
-            echo "ERROR: wakenet9_quantized.c was not found in workspace or PlatformIO cache"
-            echo "=== ESP-SR package directories ==="
-            find "$HOME/.platformio" -maxdepth 8 -type d -iname '*esp-sr*' -print 2>/dev/null | sort || true
-            exit 1
+            echo "Source not present in workspace/cache; downloading official ESP-SR v2.4.6 source."
+            mkdir -p sr-source/downloaded
+            curl --fail --silent --show-error --location \
+              https://raw.githubusercontent.com/espressif/esp-sr/v2.4.6/components/wakenet/wakenet9_quantized.c \
+              -o sr-source/downloaded/wakenet9_quantized.c
+            test -s sr-source/downloaded/wakenet9_quantized.c
+            SR_SOURCE="$GITHUB_WORKSPACE/sr-source/downloaded/wakenet9_quantized.c"
+            echo "ESP-SR source fallback: official v2.4.6 tag"
           fi
 
-          echo "Exact ESP-SR WakeNet source candidate: $SR_SOURCE"
+          echo "WakeNet9 source selected: $SR_SOURCE"
           mkdir -p sr-source
           cp "$SR_SOURCE" sr-source/wakenet9_quantized.c
 
           {
-            echo "=== Exact source: $SR_SOURCE ==="
+            echo "=== Source selected: $SR_SOURCE ==="
+            echo "=== ESP-SR tag used for fallback: v2.4.6 ==="
             echo "=== SOURCE 320-350 ==="
             nl -ba "$SR_SOURCE" | sed -n '320,350p'
             echo "=== SOURCE 510-540 ==="
