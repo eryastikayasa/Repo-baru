@@ -46,14 +46,36 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m pip install --upgrade pip platformio
-          pio platform install espressif32@7.0.1
+
+          # ESP-IDF 6.0.1 / PlatformIO espressif32 7.0.1 uses
+          # the modern Espressif Xtensa GNU toolchain.
+          pio pkg install --global \
+            -t "platformio/toolchain-xtensa-esp-elf@15.2.0+20251204"
+
+          echo "=== Installed Xtensa toolchain packages ==="
+          pio pkg list --global --only-tools | grep -E 'xtensa|esp-elf' || true
 
       - name: Locate Xtensa objdump
         run: |
           set -euo pipefail
-          OBJDUMP=$(find "$HOME/.platformio" -type f -name 'xtensa-esp-elf-objdump' -print -quit)
-          test -n "$OBJDUMP"
+
+          # ESP32-S3 toolchains may expose either the generic
+          # xtensa-esp-elf name or the target-specific esp32s3 name.
+          OBJDUMP=$(find "$HOME/.platformio/packages" -type f \
+            \( -name 'xtensa-esp32s3-elf-objdump' \
+               -o -name 'xtensa-esp-elf-objdump' \
+               -o -name 'xtensa-esp32-elf-objdump' \) \
+            -print -quit)
+
+          if [ -z "$OBJDUMP" ]; then
+            echo "ERROR: Xtensa objdump not found"
+            echo "=== All objdump binaries under PlatformIO ==="
+            find "$HOME/.platformio/packages" -type f -iname '*objdump*' -print | sort || true
+            exit 1
+          fi
+
           echo "OBJDUMP=$OBJDUMP" >> "$GITHUB_ENV"
+          echo "Found Xtensa objdump: $OBJDUMP"
           "$OBJDUMP" --version
 
       - name: Disassemble exact WakeNet crash area
@@ -68,13 +90,23 @@ jobs:
       - name: Decode crash address and inspect symbols
         run: |
           set -euo pipefail
-          OBJDUMP="$OBJDUMP"
           echo "=== SYMBOL / SOURCE CHECK ==="
           "$OBJDUMP" -t "$ELF" | grep -E 'model_create|wakenet9' | head -n 80 || true
 
           echo "=== ADDR2LINE ==="
-          XTENSA_ADDR2LINE=$(find "$HOME/.platformio" -type f -name 'xtensa-esp-elf-addr2line' -print -quit)
-          test -n "$XTENSA_ADDR2LINE"
+          XTENSA_ADDR2LINE=$(find "$HOME/.platformio/packages" -type f \
+            \( -name 'xtensa-esp32s3-elf-addr2line' \
+               -o -name 'xtensa-esp-elf-addr2line' \
+               -o -name 'xtensa-esp32-elf-addr2line' \) \
+            -print -quit)
+
+          if [ -z "$XTENSA_ADDR2LINE" ]; then
+            echo "ERROR: Xtensa addr2line not found"
+            find "$HOME/.platformio/packages" -type f -iname '*addr2line*' -print | sort || true
+            exit 1
+          fi
+
+          echo "Found addr2line: $XTENSA_ADDR2LINE"
           "$XTENSA_ADDR2LINE" -e "$ELF" -f -C -p \
             0x4205feb1 \
             0x42060520 \
