@@ -129,22 +129,33 @@ jobs:
 
           {
             echo
-            echo "=== EXACT ADDR2LINE ==="
+            echo "=== CRASH PC / EXACT ADDR2LINE ==="
+            echo "Target PC: 0x4205fef8"
             "$ADDR2LINE" -e "$ELF" -f -C -p \
-              0x4205fef8 0x4205fef5 0x42060564 0x420034bd \
-              0x42003d95 0x42013520 0x420c6686
+              0x4205fef8 0x4205fef5 0x4205fef6 0x4205fef7 \
+              0x4205fefa 0x4205fefd 0x4205ff02 0x4205ff04 \
+              0x4205ff07 0x4205ff0c 0x4205ff11 0x4205ff17 \
+              0x4205ff1c 0x4205ff21 0x42060564
 
             echo
             echo "=== SYMBOLS: WakeNet model_create ==="
             "$OBJDUMP" -t "$ELF" | grep -E 'model_create|wakenet9(_quantized)?|wakenet9l' | head -n 160 || true
 
             echo
-            echo "=== DISASSEMBLY 0x4205fee0..0x4205ff30 ==="
-            "$OBJDUMP" -d --start-address=0x4205fee0 --stop-address=0x4205ff30 "$ELF"
+            echo "=== EXACT DISASSEMBLY 0x4205fed0..0x4205ff30 ==="
+            "$OBJDUMP" -d --start-address=0x4205fed0 --stop-address=0x4205ff30 "$ELF"
+
+            echo
+            echo "=== SOURCE-INTERLEAVED DISASSEMBLY AROUND CRASH ==="
+            "$OBJDUMP" -S -C --start-address=0x4205fed0 --stop-address=0x4205ff30 "$ELF" 2>&1 || true
 
             echo
             echo "=== DWARF LINE TABLE: wakenet9_quantized.c ==="
-            "$OBJDUMP" --dwarf=decodedline "$ELF" 2>/dev/null | grep -A8 -B8 'wakenet9_quantized.c' | head -n 160 || true
+            "$OBJDUMP" --dwarf=decodedline "$ELF" 2>/dev/null | grep -A12 -B12 'wakenet9_quantized.c' | head -n 240 || true
+
+            echo
+            echo "=== DEBUG INFO: model_create references ==="
+            "$ADDR2LINE" -e "$ELF" -f -C -p 0x4205fd4c 0x4205fef8 0x42060564 || true
           } | tee -a "$REPORT"
 
           cp "$REPORT" sr-source/sr-wakenet-diagnostic.txt
