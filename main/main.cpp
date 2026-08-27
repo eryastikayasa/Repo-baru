@@ -53,7 +53,6 @@ static bool wakeword_init(void)
     ESP_LOGI(TAG, "Model: %s", WAKE_MODEL_NAME);
     ESP_LOGI(TAG, "Loading ESP-SR models from partition: model");
 
-    // Load model list dari partisi "model"
     sr_models = esp_srmodel_init("model");
     if (!sr_models) {
         ESP_LOGE(TAG, "ESP-SR model loader gagal: partition 'model' tidak tersedia atau model image tidak valid");
@@ -62,7 +61,6 @@ static bool wakeword_init(void)
 
     ESP_LOGI(TAG, "ESP-SR models loaded: count=%d", sr_models->num);
 
-    // Cari index model Alexa, simpan untuk ambil data model
     int model_index = esp_srmodel_exists(sr_models, (char *)WAKE_MODEL_NAME);
     if (model_index < 0) {
         ESP_LOGE(TAG, "WakeNet model tidak ditemukan di srmodels.bin: %s", WAKE_MODEL_NAME);
@@ -79,28 +77,17 @@ static bool wakeword_init(void)
         return false;
     }
 
-    // === PERBAIKAN UTAMA ===
-    // Ambil data model dari list
-srmodel_data_t *srmodel = sr_models->model_data[model_index];
-if (!srmodel) {
-    ESP_LOGE(TAG, "srmodel untuk %s kosong", WAKE_MODEL_NAME);
-    wake_iface = nullptr;
-    esp_srmodel_deinit(sr_models);
-    sr_models = nullptr;
-    return false;
-}
+    // Ambil srmodel dan teruskan ke create
+    srmodel_data_t *srmodel = sr_models->model_data[model_index];
+    if (!srmodel) {
+        ESP_LOGE(TAG, "srmodel untuk %s kosong", WAKE_MODEL_NAME);
+        wake_iface = nullptr;
+        esp_srmodel_deinit(sr_models);
+        sr_models = nullptr;
+        return false;
+    }
 
-// Berikan pointer srmodel langsung ke create (sebagai const void*)
-wake_model = wake_iface->create((const void *)srmodel, DET_MODE_90);
-if (!wake_model) {
-    ESP_LOGE(TAG, "Gagal membuat WakeNet model: %s", WAKE_MODEL_NAME);
-    wake_iface = nullptr;
-    esp_srmodel_deinit(sr_models);
-    sr_models = nullptr;
-    return false;
-}
-
-wake_model = wake_iface->create(model_data, DET_MODE_90);
+    wake_model = wake_iface->create((const void *)srmodel, DET_MODE_90);
     if (!wake_model) {
         ESP_LOGE(TAG, "Gagal membuat WakeNet model: %s", WAKE_MODEL_NAME);
         wake_iface = nullptr;
@@ -108,9 +95,7 @@ wake_model = wake_iface->create(model_data, DET_MODE_90);
         sr_models = nullptr;
         return false;
     }
-    // =======================
 
-    // BASELINE ONLY: baca threshold default, jangan diubah dulu
     float current_threshold = wake_iface->get_det_threshold(wake_model, 1);
     ESP_LOGI(TAG, "WakeNet detection threshold (default): %.4f", current_threshold);
 
