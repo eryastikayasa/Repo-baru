@@ -80,20 +80,20 @@ static bool wakeword_init(void)
     }
 
     // === PERBAIKAN UTAMA ===
-    // Dapatkan koefisien model menggunakan fungsi yang tersedia
-model_coeff_getter_t *coeff_getter = srmodel_get_model_coeff((char *)WAKE_MODEL_NAME);
-if (!coeff_getter) {
-    ESP_LOGE(TAG, "Gagal mendapatkan model coeff getter untuk %s", WAKE_MODEL_NAME);
+    // Ambil data model dari list
+srmodel_data_t *srmodel = sr_models->model_data[model_index];
+if (!srmodel) {
+    ESP_LOGE(TAG, "srmodel untuk %s kosong", WAKE_MODEL_NAME);
     wake_iface = nullptr;
     esp_srmodel_deinit(sr_models);
     sr_models = nullptr;
     return false;
 }
 
-// Cast ke model_iface_data_t* (sesuai kebutuhan wake_iface->create)
-model_iface_data_t *model_data = (model_iface_data_t *)coeff_getter;
-if (!model_data) {
-    ESP_LOGE(TAG, "Data model untuk %s kosong", WAKE_MODEL_NAME);
+// Berikan pointer srmodel langsung ke create (sebagai const void*)
+wake_model = wake_iface->create((const void *)srmodel, DET_MODE_90);
+if (!wake_model) {
+    ESP_LOGE(TAG, "Gagal membuat WakeNet model: %s", WAKE_MODEL_NAME);
     wake_iface = nullptr;
     esp_srmodel_deinit(sr_models);
     sr_models = nullptr;
