@@ -102,20 +102,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          SR_SOURCE="$(find managed_components .pio/build/esp32-s3-devkitc-1/managed_components -type f \
-            \( -path '*/espressif__esp-sr/components/wakenet/wakenet9_quantized.c' \
-               -o -path '*/esp-sr/components/wakenet/wakenet9_quantized.c' \) \
-            -print -quit 2>/dev/null || true)"
+          echo "=== Searching workspace and PlatformIO cache ==="
+          SEARCH_ROOTS=("$GITHUB_WORKSPACE" "$HOME/.platformio")
+          mapfile -t CANDIDATES < <(find "${SEARCH_ROOTS[@]}" -type f \
+            \( -name 'wakenet9_quantized.c' -o -name 'wakenet9l_quantized.c' \) \
+            -print 2>/dev/null | sort -u)
+
+          printf '%s\n' "${CANDIDATES[@]}"
+
+          SR_SOURCE="$(printf '%s\n' "${CANDIDATES[@]}" | grep -E '/wakenet9_quantized\.c$' | head -n1 || true)"
 
           if [ -z "$SR_SOURCE" ]; then
-            echo "ERROR: exact ESP-SR wakenet9_quantized.c was not found"
-            echo "=== Candidate WakeNet sources ==="
-            find managed_components .pio/build/esp32-s3-devkitc-1/managed_components -type f \
-              \( -name 'wakenet9_quantized.c' -o -name 'wakenet9l_quantized.c' \) -print | sort || true
+            echo "ERROR: wakenet9_quantized.c was not found in workspace or PlatformIO cache"
+            echo "=== ESP-SR package directories ==="
+            find "$HOME/.platformio" -maxdepth 8 -type d -iname '*esp-sr*' -print 2>/dev/null | sort || true
             exit 1
           fi
 
-          echo "Exact ESP-SR WakeNet source: $SR_SOURCE"
+          echo "Exact ESP-SR WakeNet source candidate: $SR_SOURCE"
           mkdir -p sr-source
           cp "$SR_SOURCE" sr-source/wakenet9_quantized.c
 
