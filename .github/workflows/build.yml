@@ -11,6 +11,10 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
   build:
     name: Build ESP32-S3 Firmware
@@ -94,7 +98,33 @@ jobs:
           echo "ESP-SR model image: $MODEL"
           stat -c 'Model size: %s bytes' "$MODEL"
 
-      - name: Audit ESP-SR 2.4.7 WakeNet9 Alexa build output
+      - name: Capture exact ESP-SR WakeNet source used by this build
+        run: |
+          set -euo pipefail
+
+          SR_SOURCE="$(find managed_components .pio/build/esp32-s3-devkitc-1/managed_components -type f \
+            \( -path '*/espressif__esp-sr/components/wakenet/wakenet9_quantized.c' \
+               -o -path '*/esp-sr/components/wakenet/wakenet9_quantized.c' \) \
+            -print -quit 2>/dev/null || true)"
+
+          if [ -z "$SR_SOURCE" ]; then
+            echo "ERROR: exact ESP-SR wakenet9_quantized.c was not found"
+            echo "=== Candidate WakeNet sources ==="
+            find managed_components .pio/build/esp32-s3-devkitc-1/managed_components -type f \
+              \( -name 'wakenet9_quantized.c' -o -name 'wakenet9l_quantized.c' \) -print | sort || true
+            exit 1
+          fi
+
+          echo "Exact ESP-SR WakeNet source: $SR_SOURCE"
+          mkdir -p sr-source
+          cp "$SR_SOURCE" sr-source/wakenet9_quantized.c
+
+          echo "=== SOURCE 320-350 ==="
+          nl -ba "$SR_SOURCE" | sed -n '320,350p'
+          echo "=== SOURCE 510-540 ==="
+          nl -ba "$SR_SOURCE" | sed -n '510,540p'
+
+      - name: Audit ESP-SR 2.4.6 WakeNet9 Alexa build output
         run: |
           set -euo pipefail
 
@@ -131,7 +161,7 @@ jobs:
 
           echo "Firmware: PASS"
           echo "ELF: PASS"
-          echo "ESP-SR 2.4.7 model image: PASS"
+          echo "ESP-SR 2.4.6 model image: PASS"
           echo "WakeNet9 Alexa payload: PASS"
           echo "Model partition capacity (4MiB): PASS"
           echo "Model size: $MODEL_SIZE bytes"
@@ -170,3 +200,4 @@ jobs:
             .pio/build/esp32-s3-devkitc-1/partitions.bin
             .pio/build/esp32-s3-devkitc-1/firmware.elf
             .pio/build/esp32-s3-devkitc-1/srmodels/srmodels.bin
+            sr-source/wakenet9_quantized.c
