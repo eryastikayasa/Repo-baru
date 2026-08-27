@@ -119,10 +119,13 @@ jobs:
           mkdir -p sr-source
           cp "$SR_SOURCE" sr-source/wakenet9_quantized.c
 
-          echo "=== SOURCE 320-350 ==="
-          nl -ba "$SR_SOURCE" | sed -n '320,350p'
-          echo "=== SOURCE 510-540 ==="
-          nl -ba "$SR_SOURCE" | sed -n '510,540p'
+          {
+            echo "=== Exact source: $SR_SOURCE ==="
+            echo "=== SOURCE 320-350 ==="
+            nl -ba "$SR_SOURCE" | sed -n '320,350p'
+            echo "=== SOURCE 510-540 ==="
+            nl -ba "$SR_SOURCE" | sed -n '510,540p'
+          } | tee sr-source/wakenet9_snippet.txt
 
       - name: Audit ESP-SR 2.4.6 WakeNet9 Alexa build output
         run: |
@@ -201,3 +204,4 @@ jobs:
             .pio/build/esp32-s3-devkitc-1/firmware.elf
             .pio/build/esp32-s3-devkitc-1/srmodels/srmodels.bin
             sr-source/wakenet9_quantized.c
+            sr-source/wakenet9_snippet.txt
