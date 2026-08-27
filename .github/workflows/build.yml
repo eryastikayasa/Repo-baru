@@ -42,9 +42,6 @@ jobs:
           pio platform show espressif32
           pio pkg list
 
-      # ============================================================
-      # GEMINI API KEY
-      # ============================================================
       - name: Prepare Gemini API key header
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -55,18 +52,12 @@ jobs:
           test -s components/websocket/include/gemini_api_key.h
           echo "Gemini API key header: PASS"
 
-      # ============================================================
-      # BUILD
-      # ============================================================
       - name: Clean build
         run: pio run -t clean
 
       - name: Build ESP32-S3
         run: pio run
 
-      # ============================================================
-      # ESP-SR MODEL / FLASH IMAGE
-      # ============================================================
       - name: Ensure ESP-SR model image exists
         run: |
           set -euo pipefail
@@ -82,11 +73,6 @@ jobs:
           test -f "$SDKCONFIG"
 
           MODEL="$BUILD/srmodels/srmodels.bin"
-
-          # PlatformIO does not necessarily invoke ESP-SR's custom
-          # srmodels_bin target during a normal `pio run`. Resolve the
-          # exact ESP-SR component used by this build and invoke its own
-          # official movemodel.py, matching ESP-SR's CMake logic.
           MOVEMODEL="$(find managed_components .pio/build/esp32-s3-devkitc-1/managed_components -type f -path '*/espressif__esp-sr/model/movemodel.py' -print -quit 2>/dev/null || true)"
           if [ -z "$MOVEMODEL" ]; then
             MOVEMODEL="$(find managed_components .pio/build/esp32-s3-devkitc-1/managed_components -type f -path '*/esp-sr/model/movemodel.py' -print -quit 2>/dev/null || true)"
@@ -97,8 +83,6 @@ jobs:
           else
             test -n "$MOVEMODEL"
             test -f "$MOVEMODEL"
-            # movemodel.py expects -d2 to be the ESP-SR component root,
-            # i.e. the parent of the model/ directory.
             ESP_SR="$(dirname "$(dirname "$MOVEMODEL")")"
             echo "ESP-SR movemodel.py: $MOVEMODEL"
             echo "ESP-SR component root: $ESP_SR"
@@ -110,9 +94,6 @@ jobs:
           echo "ESP-SR model image: $MODEL"
           stat -c 'Model size: %s bytes' "$MODEL"
 
-      # ============================================================
-      # ESP-SR MODEL / FLASH AUDIT
-      # ============================================================
       - name: Audit ESP-SR 2.4.7 WakeNet9 Alexa build output
         run: |
           set -euo pipefail
@@ -155,16 +136,20 @@ jobs:
           echo "Model partition capacity (4MiB): PASS"
           echo "Model size: $MODEL_SIZE bytes"
 
-      # ============================================================
-      # CA BUNDLE AUDIT
-      # ============================================================
       - name: Audit CA bundle
         run: |
           set -euo pipefail
 
           BUILD=.pio/build/esp32-s3-devkitc-1
-          SDKCONFIG=sdkconfig
           ELF="$BUILD/firmware.elf"
+
+          if [ -f sdkconfig ]; then
+            SDKCONFIG=sdkconfig
+          else
+            SDKCONFIG="$(find . -maxdepth 1 -type f -name 'sdkconfig.*' ! -name 'sdkconfig.defaults' -print -quit)"
+          fi
+          test -f "$SDKCONFIG"
+          echo "Final sdkconfig: $SDKCONFIG"
 
           grep -E '^(CONFIG_MBEDTLS_CERTIFICATE_BUNDLE|CONFIG_MBEDTLS_DEFAULT_CERTIFICATE_BUNDLE|CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL|CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY)=' "$SDKCONFIG"
           test "$(grep -E '^CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y$' "$SDKCONFIG" | wc -l)" -eq 1
@@ -174,9 +159,6 @@ jobs:
 
           echo "CA bundle: PASS"
 
-      # ============================================================
-      # ARTIFACTS
-      # ============================================================
       - name: Upload firmware and ESP-SR model artifacts
         uses: actions/upload-artifact@v4
         with:
