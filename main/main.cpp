@@ -106,7 +106,7 @@ static bool wakeword_init(void)
     }
 
     ESP_LOGI(TAG, "Wake word aktif: HI, ESP");
-    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "========================================"); 
     return true;
 }
 
