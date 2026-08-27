@@ -1,4 +1,4 @@
-name: Find and Print esp_wn_iface.h
+name: Print ESP32-S3 esp_wn_iface.h
 
 on: workflow_dispatch
 
@@ -12,25 +12,18 @@ jobs:
           ref: 5fadfbd5bd9df756f543973bd43520d9270ffb1b
           path: esp-sr
 
-      - name: Find esp_wn_iface.h
+      - name: Print esp_wn_iface.h (ESP32-S3)
         run: |
-          echo "=== Searching for esp_wn_iface.h ==="
-          find esp-sr -name 'esp_wn_iface.h' -type f
+          FILE="esp-sr/include/esp32s3/esp_wn_iface.h"
+          echo "=== File: $FILE ==="
+          sed -n '1,260p' "$FILE"
 
-      - name: Print content of esp_wn_iface.h
+      - name: Search model_iface_data_t definition (all headers)
         run: |
-          FILE=$(find esp-sr -name 'esp_wn_iface.h' -type f | head -n 1)
-          if [ -z "$FILE" ]; then
-            echo "File not found"
-            exit 1
-          fi
-          echo "File: $FILE"
-          sed -n '1,220p' "$FILE"
+          echo "=== Searching model_iface_data_t ==="
+          grep -R -n -B5 -A30 "model_iface_data_t" esp-sr --include='*.h' | head -300
 
-      - name: Search model_iface_data_t definition
+      - name: Search model_coeff_getter_t definition (all headers)
         run: |
-          grep -R -n -B5 -A30 "model_iface_data_t" esp-sr --include='*.h' | head -200
-
-      - name: Search model_coeff_getter_t
-        run: |
-          grep -R -n -B5 -A30 "model_coeff_getter_t" esp-sr --include='*.h' | head -200
+          echo "=== Searching model_coeff_getter_t ==="
+          grep -R -n -B5 -A30 "model_coeff_getter_t" esp-sr --include='*.h' | head -300
