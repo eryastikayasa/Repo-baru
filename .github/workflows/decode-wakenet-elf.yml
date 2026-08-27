@@ -46,124 +46,77 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m pip install --upgrade pip platformio
-
-          # ESP-IDF 6.0.1 / PlatformIO espressif32 7.0.1 uses
-          # the modern Espressif Xtensa GNU toolchain.
-          pio pkg install --global \
-            -t "platformio/toolchain-xtensa-esp-elf@15.2.0+20251204"
-
+          pio pkg install --global -t "platformio/toolchain-xtensa-esp-elf@15.2.0+20251204"
           echo "=== Installed Xtensa toolchain packages ==="
           pio pkg list --global --only-tools | grep -E 'xtensa|esp-elf' || true
 
-      - name: Locate Xtensa objdump
+      - name: Locate Xtensa tools
         run: |
           set -euo pipefail
-
           OBJDUMP=$(find "$HOME/.platformio/packages" -type f \
-            \( -name 'xtensa-esp32s3-elf-objdump' \
-               -o -name 'xtensa-esp-elf-objdump' \
-               -o -name 'xtensa-esp32-elf-objdump' \) \
+            \( -name 'xtensa-esp32s3-elf-objdump' -o -name 'xtensa-esp-elf-objdump' -o -name 'xtensa-esp32-elf-objdump' \) \
             -print -quit)
-
-          if [ -z "$OBJDUMP" ]; then
-            echo "ERROR: Xtensa objdump not found"
-            find "$HOME/.platformio/packages" -type f -iname '*objdump*' -print | sort || true
-            exit 1
-          fi
-
+          ADDR2LINE=$(find "$HOME/.platformio/packages" -type f \
+            \( -name 'xtensa-esp32s3-elf-addr2line' -o -name 'xtensa-esp-elf-addr2line' -o -name 'xtensa-esp32-elf-addr2line' \) \
+            -print -quit)
+          test -n "$OBJDUMP"
+          test -n "$ADDR2LINE"
           echo "OBJDUMP=$OBJDUMP" >> "$GITHUB_ENV"
-          echo "Found Xtensa objdump: $OBJDUMP"
+          echo "ADDR2LINE=$ADDR2LINE" >> "$GITHUB_ENV"
           "$OBJDUMP" --version
+          "$ADDR2LINE" --version | head -n 1
+
+      - name: Decode exact crash and backtrace
+        run: |
+          set -euo pipefail
+          {
+            echo "=== ELF ==="
+            echo "$ELF"
+            echo
+            echo "=== ADDR2LINE: EXACT CRASH PC + BACKTRACE ==="
+            "$ADDR2LINE" -e "$ELF" -f -C -p \
+              0x4205fef8 0x4205fef5 0x42060564 0x420034bd \
+              0x42003d95 0x42013520 0x420c6686
+            echo
+            echo "=== SYMBOLS: WakeNet model_create ==="
+            "$OBJDUMP" -t "$ELF" | grep -E 'model_create|wakenet9(_quantized)?|wakenet9l' | head -n 160 || true
+          } | tee addr2line-report.txt
 
       - name: Disassemble exact WakeNet crash area
         run: |
           set -euo pipefail
-          echo "=== DISASSEMBLY AROUND CRASH PC 0x4205fef8 ==="
-          "$OBJDUMP" -d \
-            --start-address=0x4205fee0 \
-            --stop-address=0x4205ff30 \
-            "$ELF"
-
-      - name: Decode exact crash and backtrace addresses
-        run: |
-          set -euo pipefail
-          echo "=== SYMBOL / SOURCE CHECK ==="
-          "$OBJDUMP" -t "$ELF" | grep -E 'model_create|wakenet9|wakenet9l' | head -n 120 || true
-
-          echo "=== ADDR2LINE: EXACT CRASH PC + BACKTRACE ==="
-          XTENSA_ADDR2LINE=$(find "$HOME/.platformio/packages" -type f \
-            \( -name 'xtensa-esp32s3-elf-addr2line' \
-               -o -name 'xtensa-esp-elf-addr2line' \
-               -o -name 'xtensa-esp32-elf-addr2line' \) \
-            -print -quit)
-
-          if [ -z "$XTENSA_ADDR2LINE" ]; then
-            echo "ERROR: Xtensa addr2line not found"
-            find "$HOME/.platformio/packages" -type f -iname '*addr2line*' -print | sort || true
-            exit 1
-          fi
-
-          echo "Found addr2line: $XTENSA_ADDR2LINE"
-          "$XTENSA_ADDR2LINE" -e "$ELF" -f -C -p \
-            0x4205fef8 \
-            0x4205fef5 \
-            0x42060564 \
-            0x420034bd \
-            0x42003d95 \
-            0x42013520 \
-            0x420c6686
-
-      - name: Show exact ESP-SR source used by the build
-        run: |
-          set -euo pipefail
-          SOURCE=$(find artifact -type f -path '*/sr-source/wakenet9_quantized.c' -print -quit || true)
-
-          if [ -z "$SOURCE" ]; then
-            echo "ERROR: Exact ESP-SR source is not present in this build artifact."
-            echo "This decode workflow must use a build produced after the diagnostic build commit."
-            exit 1
-          fi
-
-          echo "Exact ESP-SR source: $SOURCE"
-          echo "=== wakenet9_quantized.c : 320-350 ==="
-          nl -ba "$SOURCE" | sed -n '320,350p'
-          echo "=== wakenet9_quantized.c : 510-540 ==="
-          nl -ba "$SOURCE" | sed -n '510,540p'
-
-      - name: Save disassembly and source report
-        run: |
-          set -euo pipefail
-          SOURCE=$(find artifact -type f -path '*/sr-source/wakenet9_quantized.c' -print -quit)
-
           {
-            echo "=== DISASSEMBLY AROUND CRASH PC 0x4205fef8 ==="
-            "$OBJDUMP" -d \
-              --start-address=0x4205fee0 \
-              --stop-address=0x4205ff30 \
-              "$ELF"
+            echo "=== DISASSEMBLY 0x4205fee0..0x4205ff30 ==="
+            "$OBJDUMP" -d --start-address=0x4205fee0 --stop-address=0x4205ff30 "$ELF"
             echo
-            echo "=== ADDR2LINE ==="
-            XTENSA_ADDR2LINE=$(find "$HOME/.platformio/packages" -type f \
-              \( -name 'xtensa-esp32s3-elf-addr2line' \
-                 -o -name 'xtensa-esp-elf-addr2line' \
-                 -o -name 'xtensa-esp32-elf-addr2line' \) \
-              -print -quit)
-            "$XTENSA_ADDR2LINE" -e "$ELF" -f -C -p \
-              0x4205fef8 0x4205fef5 0x42060564 0x420034bd \
-              0x42003d95 0x42013520 0x420c6686
+            echo "=== DISASSEMBLY 0x42060520..0x42060590 ==="
+            "$OBJDUMP" -d --start-address=0x42060520 --stop-address=0x42060590 "$ELF"
             echo
-            echo "=== SOURCE 320-350 ==="
-            nl -ba "$SOURCE" | sed -n '320,350p'
-            echo
-            echo "=== SOURCE 510-540 ==="
-            nl -ba "$SOURCE" | sed -n '510,540p'
-          } > wakenet-crash-disassembly.txt
+            echo "=== DWARF LINE TABLE: wakenet9_quantized.c ==="
+            "$OBJDUMP" --dwarf=decodedline "$ELF" 2>/dev/null | grep -A12 -B12 'wakenet9_quantized.c' | head -n 220 || true
+          } | tee disassembly-report.txt
 
+      - name: Save final diagnostic report
+        run: |
+          set -euo pipefail
+          {
+            echo "WakeNet crash diagnostic"
+            echo "========================"
+            cat addr2line-report.txt
+            echo
+            cat disassembly-report.txt
+            echo
+            echo "NOTE: ESP-SR 2.4.6 can ship WakeNet implementation as a prebuilt binary; the original C source may not exist in the build artifact."
+            echo "The ELF DWARF information is therefore the authoritative source/line mapping for this exact firmware."
+          } > wakenet-crash-disassembly.txt
           cat wakenet-crash-disassembly.txt
 
       - name: Upload disassembly report
         uses: actions/upload-artifact@v4
         with:
           name: WakeNet-ELF-Disassembly
-          path: wakenet-crash-disassembly.txt
+          path: |
+            wakenet-crash-disassembly.txt
+            addr2line-report.txt
+            disassembly-report.txt
           if-no-files-found: error
