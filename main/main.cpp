@@ -77,17 +77,7 @@ static bool wakeword_init(void)
         return false;
     }
 
-    // Ambil srmodel dan teruskan ke create
-    srmodel_data_t *srmodel = sr_models->model_data[model_index];
-    if (!srmodel) {
-        ESP_LOGE(TAG, "srmodel untuk %s kosong", WAKE_MODEL_NAME);
-        wake_iface = nullptr;
-        esp_srmodel_deinit(sr_models);
-        sr_models = nullptr;
-        return false;
-    }
-
-    wake_model = wake_iface->create((const void *)srmodel, DET_MODE_90);
+    wake_model = wake_iface->create(WAKE_MODEL_NAME, DET_MODE_90);
     if (!wake_model) {
         ESP_LOGE(TAG, "Gagal membuat WakeNet model: %s", WAKE_MODEL_NAME);
         wake_iface = nullptr;
