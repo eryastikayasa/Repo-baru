@@ -1,0 +1,98 @@
+name: Decode WakeNet ELF
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Build workflow run ID containing ESP32S3-Firmware-Full"
+        required: true
+        type: string
+      artifact_name:
+        description: "Artifact name from the build run"
+        required: true
+        default: "ESP32S3-Firmware-Full"
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  decode:
+    name: Decode WakeNet crash area
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download exact build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: artifact
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ fromJSON(inputs.run_id) }}
+
+      - name: Locate ELF
+        run: |
+          set -euo pipefail
+          ELF=$(find artifact -type f -name 'firmware.elf' -print -quit)
+          test -n "$ELF"
+          echo "ELF=$ELF" >> "$GITHUB_ENV"
+          echo "Found exact build ELF: $ELF"
+          ls -lh "$ELF"
+          file "$ELF"
+
+      - name: Install matching ESP32-S3 toolchain
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade pip platformio
+          pio platform install espressif32@7.0.1
+
+      - name: Locate Xtensa objdump
+        run: |
+          set -euo pipefail
+          OBJDUMP=$(find "$HOME/.platformio" -type f -name 'xtensa-esp-elf-objdump' -print -quit)
+          test -n "$OBJDUMP"
+          echo "OBJDUMP=$OBJDUMP" >> "$GITHUB_ENV"
+          "$OBJDUMP" --version
+
+      - name: Disassemble exact WakeNet crash area
+        run: |
+          set -euo pipefail
+          echo "=== DISASSEMBLY 0x4205fe90 - 0x4205fec0 ==="
+          "$OBJDUMP" -d \
+            --start-address=0x4205fe90 \
+            --stop-address=0x4205fec0 \
+            "$ELF"
+
+      - name: Decode crash address and inspect symbols
+        run: |
+          set -euo pipefail
+          OBJDUMP="$OBJDUMP"
+          echo "=== SYMBOL / SOURCE CHECK ==="
+          "$OBJDUMP" -t "$ELF" | grep -E 'model_create|wakenet9' | head -n 80 || true
+
+          echo "=== ADDR2LINE ==="
+          XTENSA_ADDR2LINE=$(find "$HOME/.platformio" -type f -name 'xtensa-esp-elf-addr2line' -print -quit)
+          test -n "$XTENSA_ADDR2LINE"
+          "$XTENSA_ADDR2LINE" -e "$ELF" -f -C -p \
+            0x4205feb1 \
+            0x42060520 \
+            0x42003497 \
+            0x42003d51
+
+      - name: Save disassembly report
+        run: |
+          set -euo pipefail
+          "$OBJDUMP" -d \
+            --start-address=0x4205fe90 \
+            --stop-address=0x4205fec0 \
+            "$ELF" > wakenet-crash-disassembly.txt
+          cat wakenet-crash-disassembly.txt
+
+      - name: Upload disassembly report
+        uses: actions/upload-artifact@v4
+        with:
+          name: WakeNet-ELF-Disassembly
+          path: wakenet-crash-disassembly.txt
+          if-no-files-found: error
