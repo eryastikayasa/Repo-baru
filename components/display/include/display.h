@@ -1,9 +1,13 @@
 #pragma once
+
+#include <stdint.h>
 #include "driver/gpio.h"
 
-#define OLED_SDA_PIN GPIO_NUM_1
-#define OLED_SCL_PIN GPIO_NUM_2
+#define OLED_SDA_PIN GPIO_NUM_41
+#define OLED_SCL_PIN GPIO_NUM_42
 #define OLED_I2C_ADDR 0x3C
+#define OLED_WIDTH 128
+#define OLED_HEIGHT 64
 
 typedef enum {
     FACE_IDLE = 0,
@@ -18,6 +22,7 @@ typedef enum {
 
 void oled_init(void);
 void display_status(const char* text);
+void oled_render_frame(const uint8_t* framebuffer);
 void face_set_state(face_state_t state);
 face_state_t face_get_state(void);
 void face_render(void);
