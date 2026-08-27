@@ -77,7 +77,9 @@ static bool wakeword_init(void)
         return false;
     }
 
+    ESP_LOGI(TAG, ">>> BEFORE wake_iface->create()");
     wake_model = wake_iface->create(WAKE_MODEL_NAME, DET_MODE_90);
+    ESP_LOGI(TAG, ">>> AFTER wake_iface->create(), ptr=%p", wake_model);
     if (!wake_model) {
         ESP_LOGE(TAG, "Gagal membuat WakeNet model: %s", WAKE_MODEL_NAME);
         wake_iface = nullptr;
