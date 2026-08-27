@@ -97,7 +97,9 @@ jobs:
           else
             test -n "$MOVEMODEL"
             test -f "$MOVEMODEL"
-            ESP_SR="$(dirname "$(dirname "$(dirname "$MOVEMODEL")")")"
+            # movemodel.py expects -d2 to be the ESP-SR component root,
+            # i.e. the parent of the model/ directory.
+            ESP_SR="$(dirname "$(dirname "$MOVEMODEL")")"
             echo "ESP-SR movemodel.py: $MOVEMODEL"
             echo "ESP-SR component root: $ESP_SR"
             echo "Generating srmodels.bin from the exact resolved ESP-SR component and final sdkconfig..."
